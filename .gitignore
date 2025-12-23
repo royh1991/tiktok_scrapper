@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment variables (contains API keys)
+.env
+.env.local
+.env.*
+
+# Output directories (generated content)
+output/
+downloads/
+
+# Browser profile (contains login cookies/session)
+browser_profile/
+
+# Whisper model cache
+*.pt
+~/.cache/whisper/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

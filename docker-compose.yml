@@ -1,0 +1,38 @@
+services:
+  scraper:
+    build: .
+    environment:
+      - DISPLAY=:99
+      - VNC_ENABLED=true
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      # Mount source files (no rebuild needed for code changes)
+      - ./tiktok.py:/app/tiktok.py
+      - ./extract.py:/app/extract.py
+      # Persist output and browser profile
+      - ./output:/app/output
+      - ./browser_profile:/app/browser_profile
+      - ./downloads:/app/downloads
+    ports:
+      # VNC for debugging (connect with VNC viewer to localhost:5900)
+      - "5900:5900"
+    # Allow enough shared memory for Chrome
+    shm_size: '2gb'
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+
+  # One-off login service (run this first to authenticate)
+  login:
+    build: .
+    environment:
+      - DISPLAY=:99
+      - VNC_ENABLED=true
+    volumes:
+      - ./browser_profile:/app/browser_profile
+    ports:
+      - "5900:5900"
+    shm_size: '2gb'
+    stdin_open: true
+    tty: true
+    command: python extract.py --login
