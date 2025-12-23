@@ -28,6 +28,10 @@ browser_profile/
 *.pt
 ~/.cache/whisper/
 
+# ML model caches
+.cache/
+*.onnx
+
 # IDE
 .vscode/
 .idea/

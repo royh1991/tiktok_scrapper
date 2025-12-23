@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -32,6 +33,7 @@ from pathlib import Path
 
 import anthropic
 import base64
+import io
 from PIL import Image
 
 from tiktok import TikTokDownloader, download_batch_parallel
@@ -125,102 +127,76 @@ def extract_audio(video_path: Path, audio_path: Path) -> None:
     print(f"✓ Audio extracted")
 
 
-def encode_image_base64(image_path: Path) -> str:
-    """Encode image to base64 string."""
-    with open(image_path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode("utf-8")
-
-
-def ocr_frames(frames_dir: Path, output_path: Path) -> dict[str, str]:
+def ocr_frames(frames_dir: Path, output_path: Path, sample_rate: int = 5) -> dict[str, str]:
     """
-    Extract text from frames using Claude vision.
+    Extract text from frames using Claude Haiku (fast, accurate, cheap).
 
-    Returns dict mapping frame filename to extracted text.
+    Args:
+        sample_rate: Process every Nth frame (default 5). Text typically stays
+                     on screen 2-3 seconds, so sampling every 5th frame is fine.
+
+    Cost: ~$0.01-0.02 per video with Haiku + 512px resize + sampling.
     """
-    print(f"[4/5] Extracting text from frames with Claude vision...")
+    print(f"[4/5] Extracting text from frames with Claude Haiku...")
 
-    client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
     results = {}
-    frame_files = sorted(frames_dir.glob("*.jpg"))
+    all_frames = sorted(frames_dir.glob("*.jpg"))
+
+    # Sample every Nth frame
+    frame_files = all_frames[::sample_rate]
 
     if not frame_files:
         print(f"✓ No frames to process")
         return results
 
-    # Process frames in batches to reduce API calls
-    batch_size = 5
+    client = anthropic.Anthropic()
 
-    for i in range(0, len(frame_files), batch_size):
-        batch = frame_files[i:i + batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (len(frame_files) + batch_size - 1) // batch_size
-        print(f"  Processing batch {batch_num}/{total_batches}...")
+    print(f"  Processing {len(frame_files)}/{len(all_frames)} frames (every {sample_rate}th)...")
 
-        # Build message content with multiple images
-        content = []
-        for frame_path in batch:
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": encode_image_base64(frame_path),
-                },
-            })
-
-        content.append({
-            "type": "text",
-            "text": f"""Extract ALL visible text from these {len(batch)} video frames.
-This includes:
-- Text overlays and captions
-- Location tags
-- Usernames and handles
-- Product names, prices
-- Any other on-screen text
-
-For each frame, list the text found. If a frame has no text, say "No text".
-Format your response as:
-Frame 1: [text found]
-Frame 2: [text found]
-...
-
-Be thorough - capture every piece of text you can see."""
-        })
+    for i, frame_path in enumerate(frame_files):
+        print(f"  Frame {i + 1}/{len(frame_files)}...", end="\r")
 
         try:
+            # Load and resize image to 512px max
+            img = Image.open(frame_path)
+            max_size = 512
+            if max(img.size) > max_size:
+                ratio = max_size / max(img.size)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+            # Convert to base64 JPEG
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=80)
+            img_b64 = base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
+
+            # Call Claude Haiku
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                messages=[{"role": "user", "content": content}]
+                model="claude-3-5-haiku-20241022",
+                max_tokens=256,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
+                        },
+                        {
+                            "type": "text",
+                            "text": "Extract ALL visible text from this video frame. Include subtitles, signs, labels, prices. Return only the text, no explanations."
+                        }
+                    ]
+                }]
             )
 
-            # Parse response and map to frame filenames
-            response_text = response.content[0].text
-            lines = response_text.strip().split("\n")
-
-            frame_idx = 0
-            current_text = []
-
-            for line in lines:
-                if line.lower().startswith("frame ") and ":" in line:
-                    if current_text and frame_idx > 0:
-                        text = "\n".join(current_text).strip()
-                        if text.lower() != "no text" and text:
-                            results[batch[frame_idx - 1].name] = text
-
-                    frame_idx = int(line.split(":")[0].replace("Frame", "").replace("frame", "").strip())
-                    text_after_colon = ":".join(line.split(":")[1:]).strip()
-                    current_text = [text_after_colon] if text_after_colon else []
-                else:
-                    current_text.append(line)
-
-            if current_text and frame_idx > 0 and frame_idx <= len(batch):
-                text = "\n".join(current_text).strip()
-                if text.lower() != "no text" and text:
-                    results[batch[frame_idx - 1].name] = text
+            text = response.content[0].text.strip()
+            if text and text.lower() not in ["no text visible", "no visible text", "none", ""]:
+                results[frame_path.name] = text
 
         except Exception as e:
-            print(f"  Error processing batch: {e}")
+            print(f"  Error on {frame_path.name}: {e}")
+
+    print(f"  " + " " * 40)  # Clear progress line
 
     # Save results
     output_path.write_text(json.dumps(results, indent=2))
@@ -243,11 +219,23 @@ def transcribe_audio(audio_path: Path, output_dir: Path, model: str = "base") ->
     model_obj = whisper.load_model(model)
     result = model_obj.transcribe(str(audio_path))
 
-    # Save transcription
+    # Save transcription text
     transcript_path = output_dir / "transcript.txt"
     transcript_path.write_text(result["text"].strip())
 
-    print(f"✓ Transcription complete")
+    # Save segment timestamps for frame selection
+    segments = []
+    for seg in result.get("segments", []):
+        segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg["text"].strip(),
+        })
+
+    timestamps_path = output_dir / "transcript_timestamps.json"
+    timestamps_path.write_text(json.dumps(segments, indent=2))
+
+    print(f"✓ Transcription complete ({len(segments)} segments)")
     return result["text"].strip()
 
 
@@ -353,16 +341,42 @@ async def extract_tiktok_async(
 
     # Step 1: Download video using zendriver (captures as webm)
     print(f"[1/5] Downloading video...")
-    result = await downloader.download_video(url, video_path)
+
+    # Retry logic for flaky downloads
+    max_retries = 3
+    retry_delay = 5
+    result = None
+
+    for attempt in range(max_retries):
+        result = await downloader.download_video(url, video_path)
+
+        if result["success"]:
+            break
+
+        if attempt < max_retries - 1:
+            print(f"  Download failed, retrying ({attempt + 2}/{max_retries}) in {retry_delay}s...")
+            await asyncio.sleep(retry_delay)
+            retry_delay *= 2  # Exponential backoff
 
     if not result["success"]:
-        raise Exception(f"Failed to download video: {result.get('error', 'Unknown error')}")
+        raise Exception(f"Failed to download video after {max_retries} attempts: {result.get('error', 'Unknown error')}")
 
     # Get the actual video path (may have been changed to .webm)
     actual_video_path = result.get("video_path", video_path)
 
+    # Build metadata from URL
+    import re
+    video_id_match = re.search(r'/video/(\d+)', url)
+    author_match = re.search(r'@([^/]+)', url)
+    metadata = {
+        "url": url.split("?")[0],  # Clean URL without query params
+        "video_id": video_id_match.group(1) if video_id_match else None,
+        "author": author_match.group(1) if author_match else None,
+        **result.get("metadata", {}),  # Merge any existing metadata
+    }
+
     # Process the video (sync operations)
-    return process_video(actual_video_path, work_dir, whisper_model, result.get("metadata", {}))
+    return process_video(actual_video_path, work_dir, whisper_model, metadata)
 
 
 async def extract_batch_async(
@@ -475,6 +489,29 @@ async def extract_batch_parallel_async(
         local=local,
     )
 
+    # Step 1b: Retry failed downloads sequentially
+    failed_indices = [i for i, r in enumerate(download_results) if not r.get("success")]
+    if failed_indices:
+        print(f"\nRetrying {len(failed_indices)} failed download(s)...")
+        async with TikTokDownloader(local=local) as downloader:
+            for idx in failed_indices:
+                url = urls[idx]
+                print(f"  Retrying [{idx+1}]: {url[:50]}...")
+
+                max_retries = 2
+                for attempt in range(max_retries):
+                    video_path = output_base / f"video_{idx+1}_retry.webm"
+                    result = await downloader.download_video(url, video_path)
+
+                    if result["success"]:
+                        download_results[idx] = result
+                        print(f"  [{idx+1}] Retry successful!")
+                        break
+
+                    if attempt < max_retries - 1:
+                        print(f"  [{idx+1}] Retry {attempt+1} failed, trying again...")
+                        await asyncio.sleep(5)
+
     # Step 2: Process downloaded videos sequentially
     print("\nPhase 2: Processing downloaded videos...")
     results = []
@@ -506,8 +543,18 @@ async def extract_batch_parallel_async(
         new_video_path = work_dir / "video.webm"
         shutil.move(str(video_path), str(new_video_path))
 
+        # Build metadata from URL
+        video_id_match = re.search(r'/video/(\d+)', url)
+        author_match = re.search(r'@([^/]+)', url)
+        metadata = {
+            "url": url.split("?")[0],  # Clean URL without query params
+            "video_id": video_id_match.group(1) if video_id_match else None,
+            "author": author_match.group(1) if author_match else None,
+            **dl_result.get("metadata", {}),  # Merge any existing metadata
+        }
+
         try:
-            result = process_video(new_video_path, work_dir, whisper_model, dl_result.get("metadata", {}))
+            result = process_video(new_video_path, work_dir, whisper_model, metadata)
             result["success"] = True
             result["url"] = url
             results.append(result)

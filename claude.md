@@ -46,7 +46,10 @@ tiktok_scrapper/
 ├── claude.md              # This documentation
 ├── extract.py             # Main extraction pipeline (frames, OCR, transcription)
 ├── tiktok.py              # TikTok video downloader using zendriver
+├── upload.py              # Upload to GCS + Supabase with smart frame selection
+├── db.py                  # Supabase database client and helpers
 ├── requirements.txt       # Python dependencies
+├── .env                   # Environment variables (API keys, URLs)
 ├── Dockerfile             # Docker image definition
 ├── docker-compose.yml     # Docker services configuration
 ├── docker-entrypoint.sh   # Container startup script
@@ -113,6 +116,67 @@ config = Config(
 | `transcribe_audio` | 237-251 | Transcribe using Whisper |
 | `extract_batch_async` | 368-440 | Sequential extraction with shared browser |
 | `extract_batch_parallel_async` | 443-540 | Parallel download, sequential processing |
+
+### upload.py - Upload Pipeline
+
+Uploads processed videos to Google Cloud Storage and Supabase database.
+
+| Function | Lines | Description |
+|----------|-------|-------------|
+| `select_key_frames` | 104-195 | Smart frame selection (OCR/timestamp/interval) |
+| `upload_to_gcs` | 198-239 | Upload artifacts to GCS bucket |
+| `process_video` | 242-293 | Full upload workflow for one video |
+| `find_processed_videos` | 41-55 | Scan output directory for ready videos |
+
+**Smart Frame Selection Algorithm** (`upload.py:104-195`):
+
+Selects the most informative frames instead of random intervals. Priority order:
+
+1. **OCR-based** - Frames where on-screen text changes (from `ocr.json`)
+2. **Timestamp-based** - Frames at speech segment boundaries (from `transcript_timestamps.json`)
+3. **Interval-based** - Every Nth frame as fallback (default: every 10th)
+
+Always includes first and last frame. Limited to 20 frames max per video.
+
+```python
+def select_key_frames(video_dir: Path, fallback_interval: int = 10, max_frames: int = 20) -> list[Path]:
+    # Method 1: OCR-based - frames where text changes
+    if ocr_path.exists():
+        prev_text = None
+        for frame_name, text in ocr_data.items():
+            normalized = text.strip().lower()[:100]
+            if normalized != prev_text:
+                selected_frames.add(frame_path)
+                prev_text = normalized
+
+    # Method 2: Timestamp-based - speech segment boundaries
+    if timestamps_path.exists() and len(selected_frames) < 3:
+        for seg in segments:
+            frame_num = int(seg["start"] * fps) + 1
+            selected_frames.add(frame_path)
+
+    # Method 3: Fallback to interval
+    if len(selected_frames) < 3:
+        for i, frame_path in enumerate(frame_files):
+            if i % fallback_interval == 0:
+                selected_frames.add(frame_path)
+
+    # Always include first/last, limit to max_frames
+    return sorted_frames[:max_frames]
+```
+
+### db.py - Database Client
+
+Supabase client with helper functions for video tracking.
+
+| Function | Lines | Description |
+|----------|-------|-------------|
+| `get_client` | 18-19 | Get Supabase client instance |
+| `extract_video_id` | 22-26 | Extract video ID from TikTok URL |
+| `extract_author` | 29-33 | Extract @username from TikTok URL |
+| `video_exists` | 36-40 | Check if video already in database |
+| `insert_video` | 43-65 | Insert new video record |
+| `search_videos` | 68-78 | Full-text search across transcripts/OCR |
 
 ### docker-entrypoint.sh - Container Startup
 
@@ -254,6 +318,50 @@ duration = video_info.get('duration') or 60  # Falls back to 60 if None
 width = video_info.get('videoWidth') or 720
 height = video_info.get('videoHeight') or 1280
 ```
+
+### 9. Download Retry Logic
+
+**Problem:** TikTok downloads occasionally fail randomly (network issues, rate limiting, page load timing).
+
+**Fix:** Added retry with exponential backoff in `extract.py`:
+
+```python
+# Retry logic for flaky downloads
+max_retries = 3
+retry_delay = 5
+
+for attempt in range(max_retries):
+    result = await downloader.download_video(url, video_path)
+    if result["success"]:
+        break
+    if attempt < max_retries - 1:
+        print(f"  Download failed, retrying ({attempt + 2}/{max_retries}) in {retry_delay}s...")
+        await asyncio.sleep(retry_delay)
+        retry_delay *= 2  # Exponential backoff: 5s -> 10s -> 20s
+```
+
+Failed downloads in parallel mode are retried sequentially after the initial batch completes.
+
+### 10. Transcript Timestamps for Frame Selection
+
+**Problem:** Random frame selection misses important visual content that corresponds to speech.
+
+**Fix:** Save Whisper segment timestamps during transcription (`extract.py`):
+
+```python
+# Save segment timestamps for frame selection
+segments = []
+for seg in result.get("segments", []):
+    segments.append({
+        "start": seg["start"],
+        "end": seg["end"],
+        "text": seg["text"].strip(),
+    })
+timestamps_path = output_dir / "transcript_timestamps.json"
+timestamps_path.write_text(json.dumps(segments, indent=2))
+```
+
+These timestamps are used by `upload.py`'s smart frame selector to pick frames at speech segment boundaries.
 
 ## Docker Deployment
 
@@ -404,16 +512,99 @@ asyncio.run(extract_all())
 ```
 output/
 └── 20251222_205856_17668d73/
-    ├── video.webm         # Captured video (VP9 codec, ~70MB for 2min video)
-    ├── audio.mp3          # Extracted audio
-    ├── transcript.txt     # Speech transcription (Whisper)
-    ├── ocr.json           # On-screen text per frame (Claude vision)
-    ├── ocr_summary.txt    # Deduplicated on-screen text
-    ├── metadata.json      # TikTok video metadata
-    └── frames/            # Extracted video frames
+    ├── video.webm              # Captured video (VP9 codec, ~70MB for 2min video)
+    ├── audio.mp3               # Extracted audio
+    ├── transcript.txt          # Speech transcription (Whisper)
+    ├── transcript_timestamps.json  # Speech segment timestamps for frame selection
+    ├── ocr.json                # On-screen text per frame (Claude vision)
+    ├── ocr_summary.txt         # Deduplicated on-screen text
+    ├── metadata.json           # TikTok video metadata (url, video_id, author)
+    └── frames/                 # Extracted video frames
         ├── frame_001.jpg
         ├── frame_002.jpg
         └── ...
+```
+
+## Storage Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Local Processing                          │
+│  output/                                                         │
+│  └── {video_id}/                                                │
+│      ├── metadata.json, transcript.txt, ocr_summary.txt         │
+│      ├── transcript_timestamps.json                              │
+│      └── frames/*.jpg                                            │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ upload.py
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Google Cloud Storage                          │
+│  gs://tiktok-research-rhu/                                       │
+│  └── videos/{video_id}/                                         │
+│      ├── metadata.json                                          │
+│      ├── transcript.txt                                         │
+│      ├── transcript_timestamps.json                              │
+│      ├── ocr_summary.txt                                        │
+│      └── frames/                                                │
+│          └── (max 20 key frames selected by smart algorithm)    │
+└─────────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Supabase                                  │
+│  Table: videos                                                   │
+│  ┌─────────────┬───────────────────────────────────────────────┐│
+│  │ Column      │ Description                                   ││
+│  ├─────────────┼───────────────────────────────────────────────┤│
+│  │ video_id    │ TikTok video ID (unique)                      ││
+│  │ url         │ Original TikTok URL                           ││
+│  │ author      │ @username                                     ││
+│  │ transcript  │ Full speech transcript                        ││
+│  │ ocr_text    │ On-screen text summary                        ││
+│  │ gcs_prefix  │ GCS path (videos/{video_id}/)                 ││
+│  │ frame_count │ Number of uploaded frames                     ││
+│  │ embedding   │ vector(1536) for future RAG/similarity search ││
+│  └─────────────┴───────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Upload Usage
+
+```bash
+# Dry run - show what would be uploaded
+python upload.py --dry-run
+
+# Upload all unuploaded videos from output/
+python upload.py
+
+# Custom frame interval fallback (default: 10)
+python upload.py --frame-interval 5
+```
+
+### Supabase Schema
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE videos (
+    id SERIAL PRIMARY KEY,
+    video_id TEXT UNIQUE NOT NULL,
+    url TEXT NOT NULL,
+    author TEXT,
+    title TEXT,
+    duration_sec REAL,
+    transcript TEXT,
+    ocr_text TEXT,
+    gcs_bucket TEXT DEFAULT 'tiktok-research-rhu',
+    gcs_prefix TEXT,
+    frame_count INTEGER,
+    processed_at TIMESTAMPTZ,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+    embedding vector(1536)  -- For future similarity search
+);
+
+CREATE INDEX idx_videos_embedding ON videos USING hnsw (embedding vector_cosine_ops);
 ```
 
 ## Troubleshooting
@@ -469,11 +660,26 @@ sudo rm -rf browser_profile/*
 - openai-whisper - Audio transcription
 - Pillow - Image processing
 - aiohttp, aiofiles - Async HTTP/file operations
+- supabase - Database client for video tracking
+- google-cloud-storage - GCS upload
+- python-dotenv - Environment variable loading
 
 ### Environment Variables
+
+Create a `.env` file with:
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...  # Required for OCR
+# Required for OCR (Claude vision API)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Required for upload.py (Supabase)
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=sb_publishable_xxxxx  # or sb_secret_xxxxx
+
+# Optional - defaults to 'tiktok-research-rhu'
+GCS_BUCKET=tiktok-research-rhu
 ```
+
+**Note:** Supabase now uses `sb_publishable_*` keys (replaces legacy `anon` key) and `sb_secret_*` (replaces `service_role`).
 
 ## How Detection Avoidance Works
 
@@ -496,8 +702,11 @@ Total time for a 2-minute video: ~5-6 minutes
 
 ## Future Improvements
 
+- [x] Retry logic for failed captures (with exponential backoff)
+- [x] Caching of already-processed videos (Supabase tracks uploaded videos)
+- [x] Smart frame selection (OCR-based + timestamp-based)
 - [ ] Support for TikTok slideshows (image carousels)
-- [ ] Retry logic for failed captures
 - [ ] Progress callbacks for long-running operations
 - [ ] Support for private/friends-only videos (requires login)
-- [ ] Caching of already-processed videos
+- [ ] Generate embeddings for similarity search (pgvector ready)
+- [ ] RAG interface for querying video content
