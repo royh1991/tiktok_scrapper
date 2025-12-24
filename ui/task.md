@@ -1,0 +1,39 @@
+# AI Vacation Planner UI - Implementation Task List
+
+- [x] Scaffold Next.js project with TailwindCSS
+- [x] Generate High-Fidelity Assets
+    - [x] `splash-background.png`
+    - [x] `search-hero.png`
+    - [x] `loader-plane.png`
+    - [ ] `result-bg.png` (Deferred)
+- [ ] Install Dependencies (`lucide-react`, `framer-motion`)
+- [ ] Implement Base UI Components
+    - [ ] `lib/utils.ts` (cn helper)
+    - [ ] `components/ui/Button.tsx` (PrimaryButton)
+    - [ ] `components/ui/Card.tsx` (GlassCard)
+    - [ ] `components/ui/Input.tsx` (TripInput)
+    - [ ] `components/ui/Badge.tsx` (TagPill)
+- [ ] Implement Feature Components
+    - [ ] `components/SplashScreen.tsx`
+    - [ ] `components/SearchHero.tsx`
+    - [ ] `components/FlightLoader.tsx`
+    - [ ] `components/ProcessStep.tsx`
+    - [ ] `components/StepIndicator.tsx`
+    - [ ] `components/VideoValues.tsx` (MetricStat)
+    - [ ] `components/VideoGrid.tsx`
+    - [ ] `components/VideoCard.tsx`
+    - [ ] `components/TranscriptBadge.tsx`
+    - [ ] `components/AudioWaveform.tsx`
+    - [ ] `components/TagList.tsx`
+- [ ] Implement Layout Components
+    - [ ] `components/NavHeader.tsx`
+    - [ ] `components/FooterInfo.tsx`
+    - [ ] `components/ResultsLayout.tsx`
+    - [ ] `components/EmptyState.tsx`
+    - [ ] `components/Toast.tsx`
+- [ ] Implement Pages & Logic
+    - [ ] `app/page.tsx` (Main Flow)
+    - [ ] `app/api/search/route.ts`
+    - [ ] `app/api/download/route.ts`
+    - [ ] `app/api/process/route.ts`
+    - [ ] `app/api/results/route.ts`
