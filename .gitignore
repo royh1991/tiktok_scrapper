@@ -21,8 +21,9 @@ build/
 output/
 downloads/
 
-# Browser profile (contains login cookies/session)
+# Browser profiles (contains login cookies/session)
 browser_profile/
+browser_profiles/
 
 # Whisper model cache
 *.pt
@@ -44,3 +45,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Test/experiment directories
+ocr_experiments/
+test_output/
+*.test.py

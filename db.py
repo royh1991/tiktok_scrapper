@@ -54,6 +54,13 @@ def video_exists(video_id: str) -> bool:
     return len(result.data) > 0
 
 
+def get_all_video_ids() -> set[str]:
+    """Get all video IDs from the database (for batch duplicate checking)."""
+    client = get_client()
+    result = client.table("videos").select("video_id").execute()
+    return {row["video_id"] for row in result.data if row.get("video_id")}
+
+
 def insert_video(
     video_id: str,
     url: str,
