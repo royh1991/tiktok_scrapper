@@ -2,15 +2,24 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 
-const OUTPUT_DIR = '/Users/rhu/projects/tiktok_scrapper/output';
+export async function GET(req: Request) {
+    const { searchParams } = new URL(req.url);
+    const tripId = searchParams.get('tripId');
 
-export async function GET() {
+    if (!tripId) {
+        return NextResponse.json({ error: 'tripId required' }, { status: 400 });
+    }
+
+    const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '/Users/rhu/projects/tiktok_scrapper/';
+    const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
+    const videosDir = path.join(tripPath, 'videos');
+
     try {
-        const entries = await fs.readdir(OUTPUT_DIR, { withFileTypes: true });
+        const entries = await fs.readdir(videosDir, { withFileTypes: true });
         const tasks = entries
             .filter(entry => entry.isDirectory())
             .map(async (dir) => {
-                const dirPath = path.join(OUTPUT_DIR, dir.name);
+                const dirPath = path.join(videosDir, dir.name);
 
                 // Read metadata.json
                 let metadata: any = { creator_nickname: 'Unknown', caption: 'No caption' };
@@ -37,7 +46,7 @@ export async function GET() {
 
                 return {
                     id: dir.name,
-                    video_url: `/api/video?id=${dir.name}`, // Proxy route we need to make
+                    video_url: `/api/video?tripId=${tripId}&id=${dir.name}`,
                     metadata,
                     hasTranscript,
                     transcriptPreview

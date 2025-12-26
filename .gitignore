@@ -50,3 +50,12 @@ Thumbs.db
 ocr_experiments/
 test_output/
 *.test.py
+
+# Planning docs
+antigravity*.md
+
+# Trip data
+trips/
+
+# Debug output
+debug/

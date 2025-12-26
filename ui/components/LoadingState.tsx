@@ -5,10 +5,11 @@ import { motion } from 'framer-motion';
 import { FlightLoader } from './FlightLoader';
 import { ProcessStep } from './ProcessStep';
 import { StepIndicator } from './StepIndicator';
+import { VisualStatus } from './VisualStatus';
 
 interface LoadingStateProps {
     status: string; // 'searching', 'downloading', 'processing', 'complete'
-    logs: string[]; // Recent status messages (e.g. "Downloading video 3/50")
+    logs: string[]; // Recent status messages
 }
 
 export const LoadingState = ({ status, logs }: LoadingStateProps) => {
@@ -31,39 +32,71 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
 
     const currentStep = getStepIndex();
 
+    // Humanize the latest log for the visual display
+    const getHumanizedLog = () => {
+        const last = logs[logs.length - 1];
+        if (!last) return null;
+
+        if (last.includes('tiktok.com')) {
+            const match = last.match(/@([^/]+)/);
+            return match ? `Deep scouting insights from @${match[1]}...` : "Extracting travel secrets...";
+        }
+        if (last.toLowerCase().includes('downloading')) {
+            return "Packing your personalized travel guide...";
+        }
+        if (last.toLowerCase().includes('processing')) {
+            return "AI mapping your dream itinerary...";
+        }
+        return last;
+    };
+
     return (
-        <div className="w-full max-w-2xl mx-auto py-12 px-6">
-            <div className="text-center mb-12">
-                <FlightLoader />
-                <motion.h2
-                    className="text-2xl font-bold mt-8 text-gray-800 dark:text-white"
-                    key={status} // Animate on change
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                >
-                    {steps[Math.min(currentStep, 2)].title}
-                </motion.h2>
-                <p className="text-gray-500 mt-2 min-h-[1.5em]">
-                    {logs[logs.length - 1] || steps[Math.min(currentStep, 2)].desc}
-                </p>
-            </div>
+        <div className="w-full max-w-4xl mx-auto py-8 px-6">
+            <div className="flex flex-col lg:flex-row gap-12 items-center">
 
-            <div className="space-y-4 mb-8">
-                {steps.map((step, idx) => (
-                    <ProcessStep
-                        key={step.id}
-                        index={idx}
-                        title={step.title}
-                        description={step.desc}
-                        status={
-                            currentStep > idx ? 'completed' :
-                                currentStep === idx ? 'active' : 'waiting'
-                        }
+                {/* Visual Action Area */}
+                <div className="flex-1 w-full order-2 lg:order-1">
+                    <VisualStatus
+                        stage={status as any}
+                        latestLog={getHumanizedLog() || steps[Math.min(currentStep, 2)].desc}
                     />
-                ))}
+                </div>
+
+                {/* Progress Tracking Sidebar */}
+                <div className="w-full lg:w-72 order-1 lg:order-2">
+                    <div className="mb-8">
+                        <motion.h2
+                            className="text-3xl font-black text-gray-900 dark:text-white mb-2"
+                            key={status}
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                        >
+                            {status === 'searching' ? 'Phase 1' :
+                                status === 'downloading' ? 'Phase 2' : 'Phase 3'}
+                        </motion.h2>
+                        <p className="text-gray-500 font-bold uppercase tracking-widest text-[10px]">Current Objective</p>
+                    </div>
+
+                    <div className="space-y-6">
+                        {steps.map((step, idx) => (
+                            <ProcessStep
+                                key={step.id}
+                                index={idx}
+                                title={step.title}
+                                description={step.desc}
+                                status={
+                                    currentStep > idx ? 'completed' :
+                                        currentStep === idx ? 'active' : 'waiting'
+                                }
+                            />
+                        ))}
+                    </div>
+                </div>
             </div>
 
-            <StepIndicator steps={3} currentStep={currentStep} />
+            <div className="mt-12">
+                <StepIndicator steps={3} currentStep={currentStep} />
+            </div>
         </div>
     );
 };

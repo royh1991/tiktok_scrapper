@@ -1,33 +1,32 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
+import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
+    const tripId = searchParams.get('tripId');
+    const videoId = searchParams.get('id');
 
-    if (!id) {
-        return new NextResponse('Missing ID', { status: 400 });
+    if (!tripId || !videoId) {
+        return NextResponse.json({ error: 'tripId and id required' }, { status: 400 });
     }
 
-    const outputDir = '/Users/rhu/projects/tiktok_scrapper/output';
-    const videoPathMp4 = path.join(outputDir, id, 'video.mp4');
-    // const videoPathWebm = path.join(outputDir, id, 'video.webm');
+    const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '/Users/rhu/projects/tiktok_scrapper/';
+    const videoPath = path.join(PROJECT_ROOT, 'trips', tripId, 'videos', videoId, 'video.mp4');
 
-    // Simple serving logic
-    if (fs.existsSync(videoPathMp4)) {
-        const stat = fs.statSync(videoPathMp4);
-        const fileSize = stat.size;
-        const stream = fs.createReadStream(videoPathMp4);
+    try {
+        const stats = await fs.stat(videoPath);
+        const stream = createReadStream(videoPath);
 
-        // @ts-ignore
-        return new NextResponse(stream, {
+        return new Response(stream as any, {
             headers: {
                 'Content-Type': 'video/mp4',
-                'Content-Length': fileSize.toString(),
-            }
+                'Content-Length': stats.size.toString(),
+            },
         });
+    } catch (error) {
+        console.error('Video serve error:', error);
+        return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
-
-    return new NextResponse('Video not found', { status: 404 });
 }

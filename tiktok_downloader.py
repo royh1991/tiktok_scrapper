@@ -570,30 +570,42 @@ async def main():
 
     parser = argparse.ArgumentParser(description="TikTok Video Downloader")
     parser.add_argument("--dev", action="store_true", help="Dev mode (Mac, auto-detect Chrome)")
+    parser.add_argument("--trip", help="Trip ID (uses trips/{trip_id}/videos/ structure)")
     parser.add_argument("--workers", type=int, default=5, help="Number of browser workers")
     parser.add_argument("--output", "-o", help="Output directory")
     parser.add_argument("--retries", type=int, default=2, help="Number of retries for failed videos (default: 2)")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
+
     # Search command
     search_parser = subparsers.add_parser("search", help="Search and download")
     search_parser.add_argument("query", help="Search query")
     search_parser.add_argument("--limit", type=int, default=20, help="Max videos to download")
-    
+
     # Download command
     dl_parser = subparsers.add_parser("download", help="Download from URLs")
     dl_parser.add_argument("--file", "-f", help="File containing URLs")
     dl_parser.add_argument("urls", nargs="*", help="URLs to download")
-    
+
     args = parser.parse_args()
 
     DEV_MODE = args.dev
     if DEV_MODE:
         print("Running in DEV mode (Mac)")
 
-    output_dir = Path(args.output) if args.output else None
-    
+    # Determine output directory and URL file based on --trip
+    trip_dir = None
+    if args.trip:
+        if DEV_MODE:
+            base_dir = Path(__file__).parent
+        else:
+            base_dir = Path("/home/tiktok/tiktok_scrapper")
+        trip_dir = base_dir / "trips" / args.trip
+        output_dir = trip_dir / "videos"
+        print(f"Trip: {args.trip}")
+    else:
+        output_dir = Path(args.output) if args.output else None
+
     async with TikTokDownloader(
         output_dir=output_dir,
         num_workers=args.workers,
@@ -604,14 +616,56 @@ async def main():
             if urls:
                 await dl.download(urls)
         else:
+            # Get URLs from file or args
             if args.file:
-                with open(args.file) as f:
-                    urls = [l.strip() for l in f if l.strip().startswith("http")]
-            else:
+                content = open(args.file).read()
+                print(f"Reading from file: {args.file} ({len(content)} chars)")
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, dict) and 'urls' in data:
+                        urls = data['urls']
+                    elif isinstance(data, list):
+                        urls = data
+                    else:
+                        urls = []
+                        print("JSON parsed but no 'urls' key or list found")
+                except Exception as e:
+                    print(f"JSON parse failed: {e}")
+                    urls = [l.strip() for l in content.splitlines() if l.strip().startswith("http")]
+            elif args.trip and (trip_dir / "urls.txt").exists():
+                # Auto-read from trip's urls.txt
+                content = open(trip_dir / "urls.txt").read()
+                print(f"Auto-reading trip URLs: {trip_dir / 'urls.txt'} ({len(content)} chars)")
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, dict) and 'urls' in data:
+                        urls = data['urls']
+                    elif isinstance(data, list):
+                        urls = data
+                    else:
+                        urls = []
+                        print("JSON parsed but no 'urls' key or list found")
+                except Exception as e:
+                    print(f"JSON parse failed: {e}")
+                    urls = [l.strip() for l in content.splitlines() if l.strip().startswith("http")]
+                print(f"Loaded {len(urls)} URLs from {trip_dir / 'urls.txt'}")
+            elif args.urls:
                 urls = [u for u in args.urls if u.startswith("http")]
-            
+            else:
+                urls = []
+
             if urls:
                 await dl.download(urls)
+
+                # Update trip metadata status
+                if trip_dir:
+                    metadata_path = trip_dir / "metadata.json"
+                    if metadata_path.exists():
+                        with open(metadata_path) as f:
+                            metadata = json.load(f)
+                        metadata["status"] = "downloaded"
+                        with open(metadata_path, 'w') as f:
+                            json.dump(metadata, f, indent=2)
             else:
                 print("No URLs provided")
 

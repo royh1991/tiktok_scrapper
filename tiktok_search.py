@@ -14,8 +14,8 @@ import httpx
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from parent directory (tiktok_scrapper/)
-load_dotenv(Path(__file__).parent.parent / '.env')
+# Load .env from same directory
+load_dotenv(Path(__file__).parent / '.env')
 
 SERPER_API_KEY = os.environ.get('SERPER_API_KEY')
 

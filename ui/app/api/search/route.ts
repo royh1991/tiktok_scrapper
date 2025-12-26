@@ -2,51 +2,58 @@ import { NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 
-export async function POST(req: Request): Promise<NextResponse> {
-    const { query } = await req.json();
+export const dynamic = 'force-dynamic';
 
-    if (!query) {
-        return NextResponse.json({ error: 'Query required' }, { status: 400 });
-    }
+const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '';
 
-    const scriptPath = '/Users/rhu/projects/tiktok_scrapper/search_experiments/tiktok_search.py';
-    const outputPath = '/Users/rhu/projects/tiktok_scrapper/search_results.txt';
+export async function POST(req: Request) {
+    try {
+        const { query, tripId } = await req.json();
+        const scriptPath = path.join(PROJECT_ROOT, 'tiktok_search.py');
+        const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
+        const outputPath = path.join(tripPath, 'urls.txt');
 
-    return new Promise((resolve) => {
-        // Run: python3 tiktok_search.py "query" --max 10 -o search_results.txt
-        // Using --max 10 for demo speed, user asked for 50 but for speed 10 might be better? 
-        // User asked for ~50. I'll stick to 20 for reasonable demo wait time.
-
-        console.log(`Starting search for: ${query}`);
+        console.log(`Starting binary search for: ${query} in trip: ${tripId}`);
 
         const pythonProcess = spawn('python', [
             scriptPath,
             query,
-            '--dev',
-            '--max', '20',
+            '--max', '30',
             '-o', outputPath
         ]);
 
-        let output = '';
-        let error = '';
+        const stream = new ReadableStream({
+            start(controller) {
+                pythonProcess.stdout.on('data', (data) => {
+                    controller.enqueue(data);
+                });
 
-        pythonProcess.stdout.on('data', (data) => {
-            const line = data.toString();
-            output += line;
-            console.log('Search stdout:', line);
-        });
+                pythonProcess.stderr.on('data', (data) => {
+                    const text = data.toString();
+                    // Optional: filter out unimportant warnings
+                    if (!text.includes('Progress:')) {
+                        controller.enqueue(data);
+                    }
+                });
 
-        pythonProcess.stderr.on('data', (data) => {
-            error += data.toString();
-            console.error('Search stderr:', data.toString());
-        });
-
-        pythonProcess.on('close', (code) => {
-            if (code === 0) {
-                resolve(NextResponse.json({ success: true, message: 'Search completed', output }));
-            } else {
-                resolve(NextResponse.json({ error: 'Search failed', details: error }, { status: 500 }));
+                pythonProcess.on('close', (code) => {
+                    if (code !== 0) {
+                        controller.enqueue(Buffer.from(`\nError: Search script exited with code ${code}`));
+                    }
+                    controller.close();
+                });
             }
         });
-    });
+
+        return new Response(stream, {
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Transfer-Encoding': 'chunked',
+            },
+        });
+
+    } catch (error: any) {
+        console.error('Search API Error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 }

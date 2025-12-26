@@ -9,6 +9,8 @@ import { NavHeader } from '@/components/NavHeader';
 import { FooterInfo } from '@/components/FooterInfo';
 import { Toast } from '@/components/Toast';
 import { EmptyState } from '@/components/EmptyState';
+import { TripsDashboard } from '@/components/TripsDashboard';
+import { TripForm } from '@/components/TripForm';
 import { AnimatePresence, motion } from 'framer-motion';
 
 type FlowState = 'splash' | 'idle' | 'searching' | 'downloading' | 'processing' | 'results';
@@ -19,51 +21,128 @@ export default function Home() {
   const [videos, setVideos] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const [trips, setTrips] = useState<any[]>([]);
+  const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const [isTripFormOpen, setIsTripFormOpen] = useState(false);
+
   // Transitions
   const handleSplashComplete = () => setState('idle');
 
-  const handleSearch = async (query: string) => {
+  useEffect(() => {
+    fetchTrips();
+  }, []);
+
+  const fetchTrips = async () => {
+    try {
+      const res = await fetch('/api/trips');
+      const data = await res.json();
+      setTrips(data.trips || []);
+    } catch (e) {
+      console.error('Failed to fetch trips', e);
+    }
+  };
+
+  const handleSelectTrip = async (tripId: string) => {
+    setActiveTripId(tripId);
+    setState('results');
+    try {
+      const resultsRes = await fetch(`/api/results?tripId=${tripId}`);
+      const data = await resultsRes.json();
+      setVideos(data.videos || []);
+    } catch (e) {
+      setError('Failed to load trip results');
+    }
+  };
+
+  const handleDeleteTrip = async (tripId: string) => {
+    try {
+      const res = await fetch(`/api/trips/delete?tripId=${tripId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete trip');
+      fetchTrips();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const handleCreateTrip = async (title: string, query: string) => {
+    setIsTripFormOpen(false);
     setError(null);
     setState('searching');
-    setLogs(['Initializing search agents...', `Targeting: ${query}`]);
+    setLogs(['Initializing search agents...', `Creating trip: ${title}`]);
 
-    try {
-      // 1. Search
-      setLogs(prev => [...prev, 'Scanning TikTok for viral content...']);
-      const searchRes = await fetch('/api/search', {
+    const streamResponse = async (url: string, body: any, onChunk: (text: string) => void) => {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify(body)
       });
 
-      if (!searchRes.ok) {
-        const errData = await searchRes.json().catch(() => ({}));
-        throw new Error(errData.details || 'Search failed');
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Request failed');
       }
 
-      // 2. Download
-      setState('downloading');
-      setLogs(prev => [...prev, 'Found videos. Starting high-speed download...']);
-      const dlRes = await fetch('/api/download', { method: 'POST' });
-      if (!dlRes.ok) throw new Error('Download failed');
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-      // 3. Process
+      if (!reader) throw new Error('No reader available');
+
+      let accumulated = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        const lines = accumulated.split('\n');
+        accumulated = lines.pop() || '';
+        for (const line of lines) {
+          if (line.trim()) onChunk(line);
+        }
+      }
+      if (accumulated.trim()) onChunk(accumulated);
+    };
+
+    try {
+      // 0. Create Trip
+      const tripRes = await fetch('/api/trips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, query })
+      });
+      const tripData = await tripRes.json();
+      if (!tripRes.ok) throw new Error(tripData.error || 'Failed to create trip');
+
+      const tripId = tripData.tripId;
+      setActiveTripId(tripId);
+
+      // 1. Search (Streaming)
+      await streamResponse('/api/search', { query, tripId }, (line) => {
+        setLogs(prev => [...prev.slice(-100), line]);
+      });
+
+      // 2. Download (Streaming)
+      setState('downloading');
+      await streamResponse('/api/download', { tripId }, (line) => {
+        setLogs(prev => [...prev.slice(-100), line]);
+      });
+
+      // 3. Process (Streaming)
       setState('processing');
-      setLogs(prev => [...prev, 'Extracting metadata and transcribing audio...']);
-      const procRes = await fetch('/api/process', { method: 'POST' });
-      if (!procRes.ok) throw new Error('Processing failed');
+      await streamResponse('/api/process', { tripId }, (line) => {
+        setLogs(prev => [...prev.slice(-100), line]);
+      });
 
       // 4. Fetch Results
       setLogs(prev => [...prev, 'Finalizing itinerary...']);
-      const resultsRes = await fetch('/api/results');
+      const resultsRes = await fetch(`/api/results?tripId=${tripId}`);
       const data = await resultsRes.json();
       setVideos(data.videos || []);
 
       setState('results');
+      fetchTrips();
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setError('Something went wrong. Please try again.');
+      setError(e.message || 'Something went wrong. Please try again.');
       setState('idle');
     }
   };
@@ -82,9 +161,20 @@ export default function Home() {
             <motion.div
               key="idle"
               exit={{ opacity: 0, y: -20 }}
-              className="flex-1 flex flex-col justify-center"
+              className="flex-1 flex flex-col"
             >
-              <SearchHero onSearch={handleSearch} />
+              {trips.length > 0 ? (
+                <TripsDashboard
+                  trips={trips}
+                  onSelect={handleSelectTrip}
+                  onDelete={handleDeleteTrip}
+                  onCreateNew={() => setIsTripFormOpen(true)}
+                />
+              ) : (
+                <div className="flex-1 flex flex-col justify-center">
+                  <SearchHero onSearch={() => setIsTripFormOpen(true)} />
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -114,7 +204,7 @@ export default function Home() {
                     onClick={() => setState('idle')}
                     className="text-indigo-500 hover:underline"
                   >
-                    New Search
+                    Back to Dashboard
                   </button>
                 </div>
 
@@ -131,6 +221,12 @@ export default function Home() {
 
         <FooterInfo />
       </div>
+
+      <TripForm
+        isOpen={isTripFormOpen}
+        onClose={() => setIsTripFormOpen(false)}
+        onSubmit={handleCreateTrip}
+      />
 
       <Toast
         isVisible={!!error}

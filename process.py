@@ -385,6 +385,7 @@ def watch_and_process(output_dir: Path, whisper_model: str = "base", interval: f
 def main():
     parser = argparse.ArgumentParser(description="Process downloaded TikTok videos")
     parser.add_argument("dirs", nargs="*", type=Path, help="Specific directories to process")
+    parser.add_argument("--trip", help="Trip ID (processes trips/{trip_id}/videos/)")
     parser.add_argument("-o", "--output", type=Path, default=Path(__file__).parent / "output",
                         help="Output directory to scan (default: ./output)")
     parser.add_argument("-m", "--model", default="base", choices=["tiny", "base", "small", "medium", "large"],
@@ -396,10 +397,20 @@ def main():
 
     args = parser.parse_args()
 
+    # Determine output directory based on --trip
+    trip_dir = None
+    if args.trip:
+        base_dir = Path(__file__).parent
+        trip_dir = base_dir / "trips" / args.trip
+        output_dir = trip_dir / "videos"
+        print(f"Trip: {args.trip}")
+    else:
+        output_dir = args.output
+
     # Watch mode
     if args.watch:
         try:
-            watch_and_process(args.output, args.model)
+            watch_and_process(output_dir, args.model)
         except KeyboardInterrupt:
             print("\nStopped")
         return
@@ -408,13 +419,13 @@ def main():
     if args.dirs:
         work_dirs = [d for d in args.dirs if d.is_dir()]
     else:
-        if not args.output.exists():
-            print(f"Error: Output directory not found: {args.output}")
+        if not output_dir.exists():
+            print(f"Error: Output directory not found: {output_dir}")
             sys.exit(1)
         if args.reprocess:
-            work_dirs = find_all_videos(args.output)
+            work_dirs = find_all_videos(output_dir)
         else:
-            work_dirs = find_unprocessed(args.output)
+            work_dirs = find_unprocessed(output_dir)
 
     if not work_dirs:
         print("No videos to process")
@@ -455,6 +466,17 @@ def main():
     print(f"Failed: {failed}")
     if successful > 0:
         print(f"Total time: {total_time:.1f}s ({total_time/successful:.1f}s avg)")
+
+    # Update trip metadata status
+    if trip_dir:
+        metadata_path = trip_dir / "metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+            metadata["status"] = "processed"
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            print(f"\nTrip status updated: processed")
 
 
 if __name__ == "__main__":

@@ -355,6 +355,10 @@ def main():
         description="Upload processed TikTok videos to GCS and Supabase"
     )
     parser.add_argument(
+        "--trip",
+        help="Trip ID (uploads from trips/{trip_id}/videos/)",
+    )
+    parser.add_argument(
         "--output-dir", "-o",
         type=Path,
         default=Path(__file__).parent / "output",
@@ -379,12 +383,22 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.output_dir.exists():
-        print(f"Error: Output directory not found: {args.output_dir}")
+    # Determine output directory based on --trip
+    trip_dir = None
+    if args.trip:
+        base_dir = Path(__file__).parent
+        trip_dir = base_dir / "trips" / args.trip
+        output_dir = trip_dir / "videos"
+        print(f"Trip: {args.trip}")
+    else:
+        output_dir = args.output_dir
+
+    if not output_dir.exists():
+        print(f"Error: Output directory not found: {output_dir}")
         sys.exit(1)
 
     print(f"=== TikTok Upload to GCS + Supabase ===")
-    print(f"Output dir: {args.output_dir}")
+    print(f"Output dir: {output_dir}")
     print(f"GCS bucket: gs://{GCS_BUCKET}")
     print(f"Frame interval: every {args.frame_interval}th frame")
     if args.dry_run:
@@ -394,7 +408,7 @@ def main():
     print()
 
     # Find processed videos
-    video_dirs = find_processed_videos(args.output_dir)
+    video_dirs = find_processed_videos(output_dir)
     print(f"Found {len(video_dirs)} processed video(s)")
     print()
 
@@ -439,6 +453,17 @@ def main():
     if not args.dry_run:
         stats = db.get_stats()
         print(f"Total videos in database: {stats['total_videos']}")
+
+    # Update trip metadata status
+    if trip_dir and not args.dry_run:
+        metadata_path = trip_dir / "metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+            metadata["status"] = "uploaded"
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            print(f"\nTrip status updated: uploaded")
 
 
 if __name__ == "__main__":
