@@ -17,56 +17,64 @@ export const TripForm: React.FC<Props> = ({ isOpen, onClose, onSubmit }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-retro-cream/80 backdrop-blur-sm">
             <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl overflow-hidden"
+                initial={{ opacity: 0, scale: 0.9, rotate: -2 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                exit={{ opacity: 0, scale: 0.9, rotate: 2 }}
+                className="relative w-full max-w-lg bg-white border-2 border-black shadow-[var(--shadow-neo-lg)] p-0 overflow-hidden"
             >
-                <button
-                    onClick={onClose}
-                    className="absolute top-6 right-6 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                >
-                    <X className="w-5 h-5" />
-                </button>
+                {/* Header Strip */}
+                <div className="bg-retro-yellow border-b-2 border-black p-4 flex justify-between items-center">
+                    <h2 className="text-xl font-black font-display uppercase tracking-tight">New Mission</h2>
+                    <button
+                        onClick={onClose}
+                        className="p-1 hover:bg-white border-2 border-transparent hover:border-black transition-all"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
 
-                <div className="px-10 pt-10 pb-12">
+                <div className="p-8">
                     <div className="mb-8">
-                        <h2 className="text-3xl font-bold mb-2">Plan a New Trip</h2>
-                        <p className="text-gray-500 dark:text-gray-400">Where are we going?</p>
+                        <h2 className="text-3xl font-black mb-2 leading-none font-display">Plan a New Trip</h2>
+                        <p className="text-black/60 font-medium">Where are we going today?</p>
                     </div>
 
                     <form onSubmit={(e) => { e.preventDefault(); onSubmit(title, query); }} className="space-y-6">
                         <div>
-                            <label className="block text-sm font-semibold mb-2 ml-1 text-gray-700 dark:text-gray-300">
+                            <label className="block text-xs font-bold uppercase tracking-wider mb-2 ml-1">
                                 Trip Name
                             </label>
                             <div className="relative">
-                                <Map className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-black flex items-center justify-center text-white border-2 border-black">
+                                    <Map className="w-4 h-4" />
+                                </div>
                                 <input
                                     type="text"
                                     placeholder="e.g. 7 Days in Tokyo"
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
-                                    className="w-full pl-12 pr-6 py-4 bg-gray-50 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                    className="neo-input w-full pl-16"
                                     required
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-semibold mb-2 ml-1 text-gray-700 dark:text-gray-300">
+                            <label className="block text-xs font-bold uppercase tracking-wider mb-2 ml-1">
                                 Search Query
                             </label>
                             <div className="relative">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-retro-blue flex items-center justify-center text-white border-2 border-black">
+                                    <Search className="w-4 h-4" />
+                                </div>
                                 <input
                                     type="text"
                                     placeholder="e.g. tokyo travel tips 2024"
                                     value={query}
                                     onChange={(e) => setQuery(e.target.value)}
-                                    className="w-full pl-12 pr-6 py-4 bg-gray-50 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                    className="neo-input w-full pl-16"
                                     required
                                 />
                             </div>
@@ -74,7 +82,7 @@ export const TripForm: React.FC<Props> = ({ isOpen, onClose, onSubmit }) => {
 
                         <button
                             type="submit"
-                            className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-500/25 active:scale-[0.98] mt-4"
+                            className="neo-btn w-full bg-retro-green flex justify-center items-center gap-2 mt-8 text-lg"
                         >
                             Start Planning
                         </button>

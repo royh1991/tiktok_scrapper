@@ -4,7 +4,6 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Card } from '@/components/ui/Card';
 
 interface ProcessStepProps {
     title: string;
@@ -22,48 +21,37 @@ export const ProcessStep = ({ title, description, status, index }: ProcessStepPr
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.1 }}
+            className={cn(
+                "relative p-4 border-2 transition-all duration-300",
+                isActive ? "bg-white border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-10 scale-105 -rotate-1" : "border-transparent bg-transparent"
+            )}
         >
-            <Card
-                variant={isActive ? 'glass' : 'solid'}
-                className={cn(
-                    "flex items-center gap-4 py-4 transition-all duration-300",
-                    isActive && "ring-2 ring-indigo-500 bg-white/90",
-                    status === 'waiting' && "opacity-60 bg-transparent shadow-none border-transparent"
-                )}
-            >
+            <div className="flex items-center gap-4">
                 <div className="flex-shrink-0">
                     {isCompleted ? (
-                        <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="text-green-500"
-                        >
-                            <CheckCircle2 className="w-8 h-8" />
-                        </motion.div>
-                    ) : isActive ? (
-                        <div className="relative">
-                            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                            <motion.div
-                                className="absolute inset-0 bg-indigo-500/20 rounded-full blur-lg"
-                                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                                transition={{ repeat: Infinity, duration: 2 }}
-                            />
+                        <div className="text-retro-green bg-black rounded-full p-0.5 border-2 border-black">
+                            <CheckCircle2 className="w-6 h-6 text-retro-green" />
                         </div>
+                    ) : isActive ? (
+                        <Loader2 className="w-8 h-8 text-black animate-spin" />
                     ) : (
-                        <Circle className="w-8 h-8 text-gray-300 dark:text-gray-700" />
+                        <Circle className="w-8 h-8 text-black/20" />
                     )}
                 </div>
 
                 <div className="flex-1 min-w-0">
                     <h3 className={cn(
-                        "text-lg font-semibold",
-                        isCompleted && "text-gray-900 dark:text-white",
-                        isActive && "text-indigo-600 dark:text-indigo-400",
-                        status === 'waiting' && "text-gray-400"
+                        "text-lg font-black font-display uppercase leading-none mb-1",
+                        isCompleted && "text-black/50 line-through decoration-2 decoration-black/50",
+                        isActive && "text-black",
+                        status === 'waiting' && "text-black/30"
                     )}>
                         {title}
                     </h3>
-                    <p className="text-sm text-gray-500 truncate">
+                    <p className={cn(
+                        "text-xs font-bold font-mono uppercase tracking-wide",
+                        isActive ? "text-retro-blue" : "text-black/40"
+                    )}>
                         {isActive ? (
                             <motion.span
                                 animate={{ opacity: [1, 0.5, 1] }}
@@ -74,7 +62,7 @@ export const ProcessStep = ({ title, description, status, index }: ProcessStepPr
                         ) : description}
                     </p>
                 </div>
-            </Card>
+            </div>
         </motion.div>
     );
 };

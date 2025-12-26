@@ -51,22 +51,24 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
     };
 
     return (
-        <div className="w-full max-w-4xl mx-auto py-8 px-6">
-            <div className="flex flex-col lg:flex-row gap-12 items-center">
+        <div className="w-full max-w-6xl mx-auto py-12 px-6">
+            <div className="flex flex-col lg:flex-row gap-16 items-start">
 
                 {/* Visual Action Area */}
                 <div className="flex-1 w-full order-2 lg:order-1">
-                    <VisualStatus
-                        stage={status as any}
-                        latestLog={getHumanizedLog() || steps[Math.min(currentStep, 2)].desc}
-                    />
+                    <div className="neo-card p-12 bg-white">
+                        <VisualStatus
+                            stage={status as any}
+                            latestLog={getHumanizedLog() || steps[Math.min(currentStep, 2)].desc}
+                        />
+                    </div>
                 </div>
 
                 {/* Progress Tracking Sidebar */}
-                <div className="w-full lg:w-72 order-1 lg:order-2">
-                    <div className="mb-8">
+                <div className="w-full lg:w-96 order-1 lg:order-2">
+                    <div className="mb-8 p-6 neo-card bg-retro-cream">
                         <motion.h2
-                            className="text-3xl font-black text-gray-900 dark:text-white mb-2"
+                            className="text-4xl font-black mb-2 text-retro-black font-display uppercase tracking-tight"
                             key={status}
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
@@ -74,27 +76,29 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
                             {status === 'searching' ? 'Phase 1' :
                                 status === 'downloading' ? 'Phase 2' : 'Phase 3'}
                         </motion.h2>
-                        <p className="text-gray-500 font-bold uppercase tracking-widest text-[10px]">Current Objective</p>
-                    </div>
+                        <p className="font-bold text-retro-black/50 uppercase tracking-widest text-xs border-b-2 border-black/10 pb-4">
+                            Current Objective
+                        </p>
 
-                    <div className="space-y-6">
-                        {steps.map((step, idx) => (
-                            <ProcessStep
-                                key={step.id}
-                                index={idx}
-                                title={step.title}
-                                description={step.desc}
-                                status={
-                                    currentStep > idx ? 'completed' :
-                                        currentStep === idx ? 'active' : 'waiting'
-                                }
-                            />
-                        ))}
+                        <div className="mt-8 space-y-4">
+                            {steps.map((step, idx) => (
+                                <ProcessStep
+                                    key={step.id}
+                                    index={idx}
+                                    title={step.title}
+                                    description={step.desc}
+                                    status={
+                                        currentStep > idx ? 'completed' :
+                                            currentStep === idx ? 'active' : 'waiting'
+                                    }
+                                />
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div className="mt-12">
+            <div className="mt-12 max-w-md mx-auto">
                 <StepIndicator steps={3} currentStep={currentStep} />
             </div>
         </div>

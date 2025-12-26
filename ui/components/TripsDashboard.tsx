@@ -21,76 +21,75 @@ interface Props {
 
 export const TripsDashboard: React.FC<Props> = ({ trips, onSelect, onDelete, onCreateNew }) => {
     return (
-        <div className="max-w-6xl mx-auto px-6 py-12">
-            <div className="flex items-center justify-between mb-10">
+        <div className="max-w-7xl mx-auto px-6 py-12">
+            <div className="flex items-center justify-between mb-12">
                 <div>
-                    <h1 className="text-4xl font-bold mb-2">My Trip Planner</h1>
-                    <p className="text-gray-500 dark:text-gray-400">Manage your AI-generated travel itineraries.</p>
+                    <h1 className="text-5xl font-black mb-2 font-display uppercase tracking-tight">Mission Control</h1>
+                    <p className="text-xl text-black/60 font-medium">Manage your active travel operations.</p>
                 </div>
                 <button
                     onClick={onCreateNew}
-                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-semibold transition-all shadow-lg shadow-indigo-500/20 active:scale-95 flex items-center gap-2"
+                    className="neo-btn flex items-center gap-2 bg-retro-green text-black hover:bg-white"
                 >
                     <Map className="w-5 h-5" />
-                    Create New Trip
+                    New Mission
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {trips.map((trip, idx) => (
                     <motion.div
                         key={trip.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: idx * 0.1 }}
-                        className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-6 hover:shadow-2xl hover:shadow-indigo-500/10 transition-all cursor-pointer overflow-hidden"
+                        className="group relative cursor-pointer"
                         onClick={() => onSelect(trip.id)}
                     >
-                        {/* Background Accent */}
-                        <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl group-hover:bg-indigo-500/10 transition-colors" />
+                        {/* Shadow Block */}
+                        <div className="absolute inset-0 bg-black translate-x-2 translate-y-2" />
 
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl text-indigo-600">
-                                        <Play className="w-5 h-5" />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <h3 className="font-bold text-xl truncate group-hover:text-indigo-600 transition-colors">
-                                            {trip.title}
-                                        </h3>
-                                        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                            <Calendar className="w-3 h-3" />
-                                            {new Date(trip.createdAt).toLocaleDateString()}
-                                        </div>
+                        <div className="relative border-2 border-black bg-white p-6 h-full transition-transform hover:-translate-y-1 hover:-translate-x-1 hover:bg-retro-cream">
+                            <div className="flex items-start justify-between mb-4">
+                                <div className="p-3 bg-retro-blue border-2 border-black text-white">
+                                    <Play className="w-6 h-6 fill-current" />
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (confirm('Are you sure you want to delete this trip?')) {
+                                                onDelete(trip.id);
+                                            }
+                                        }}
+                                        className="p-2 text-black hover:bg-retro-pink hover:text-white border-2 border-transparent hover:border-black transition-all"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider border-2 border-black px-2 py-1 bg-white">
+                                        <Calendar className="w-3 h-3" />
+                                        {new Date(trip.createdAt).toLocaleDateString()}
                                     </div>
                                 </div>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (confirm('Are you sure you want to delete this trip?')) {
-                                            onDelete(trip.id);
-                                        }
-                                    }}
-                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
                             </div>
 
-                            <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2 mb-6 min-h-[2.5rem]">
+                            <h3 className="font-display font-black text-2xl mb-2 leading-none">
+                                {trip.title}
+                            </h3>
+
+                            <p className="text-sm font-mono text-black/60 mb-8 border-b-2 border-dashed border-black/20 pb-4">
                                 "{trip.query || 'No query provided'}"
                             </p>
 
-                            <div className="flex items-center justify-between pt-4 border-t border-gray-50 dark:border-gray-800/50">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold ${trip.status === 'completed'
-                                    ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400'
-                                    : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400'
+                            <div className="flex items-center justify-between mt-auto">
+                                <span className={`px-3 py-1 text-xs font-bold uppercase tracking-wider border-2 border-black ${trip.status === 'completed'
+                                    ? 'bg-retro-green text-black'
+                                    : 'bg-retro-yellow text-black'
                                     }`}>
                                     {trip.status}
                                 </span>
 
-                                <div className="p-2 rounded-xl bg-gray-50 dark:bg-gray-800 group-hover:bg-indigo-600 group-hover:text-white transition-all transform translate-x-4 opacity-0 group-hover:translate-x-0 group-hover:opacity-100">
+                                <div className="w-8 h-8 flex items-center justify-center border-2 border-black bg-white group-hover:bg-black group-hover:text-white transition-colors">
                                     <ArrowRight className="w-4 h-4" />
                                 </div>
                             </div>
