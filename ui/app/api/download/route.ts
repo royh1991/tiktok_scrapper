@@ -8,13 +8,20 @@ const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '';
 
 export async function POST(req: Request) {
     try {
-        const { tripId } = await req.json();
+        const { tripId, queryId } = await req.json();
+
+        if (!tripId || !queryId) {
+            throw new Error("Missing tripId or queryId");
+        }
+
         const scriptPath = path.join(PROJECT_ROOT, 'tiktok_downloader.py');
         const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
-        const inputFile = path.join(tripPath, 'urls.txt');
-        const outputDir = path.join(tripPath, 'videos');
+        const queryPath = path.join(tripPath, queryId);
 
-        console.log(`Starting downloader for trip: ${tripId}`);
+        const inputFile = path.join(queryPath, 'urls.txt');
+        const outputDir = path.join(queryPath, 'videos');
+
+        console.log(`Starting downloader for trip: ${tripId} / ${queryId}`);
 
         const pythonProcess = spawn('python', [
             scriptPath,

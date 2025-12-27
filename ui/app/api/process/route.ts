@@ -8,12 +8,18 @@ const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '';
 
 export async function POST(req: Request) {
     try {
-        const { tripId } = await req.json();
+        const { tripId, queryId } = await req.json();
+
+        if (!tripId || !queryId) {
+            throw new Error("Missing tripId or queryId");
+        }
+
         const scriptPath = path.join(PROJECT_ROOT, 'process.py');
         const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
-        const outputDir = path.join(tripPath, 'videos');
+        const queryPath = path.join(tripPath, queryId);
+        const outputDir = path.join(queryPath, 'videos');
 
-        console.log(`Starting processing for trip: ${tripId}`);
+        console.log(`Starting processing for trip: ${tripId} / ${queryId}`);
 
         const pythonProcess = spawn('python', [
             scriptPath,

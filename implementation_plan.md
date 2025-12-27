@@ -15,45 +15,36 @@ Build a professional, visually attractive React-based frontend (Next.js) for an 
 - **Animations**: Framer Motion
 - **Backend Integration**: Next.js API Routes (`/api/...`) spawning Python subprocesses.
 
-### Data Flow
-1.  **Search**: `POST /api/search` -> Execs `tiktok_search.py`.
-2.  **Download**: `POST /api/download` -> Execs `tiktok_downloader.py`.
-3.  **Process**: `POST /api/process` -> Execs `process.py`.
-4.  **Results**: `GET /api/results` -> Reads JSON/Media from `/output`.
+### Data Flow (Updated)
+1.  **Search**: `POST /api/search` -> Accepts `tripId` AND `queryId`. Execs `tiktok_search.py` -> Output to `trips/[tripId]/[queryId]/urls.txt`.
+2.  **Download**: `POST /api/download` -> Accepts `tripId` AND `queryId`. Execs `tiktok_downloader.py` -> Output to `trips/[tripId]/[queryId]/videos`.
+3.  **Process**: `POST /api/process` -> Accepts `tripId` AND `queryId`. Execs `process.py` -> Output to `trips/[tripId]/[queryId]/videos`.
+4.  **Results**: `GET /api/results` -> Accepts `tripId` AND `queryId`. Reads from `trips/[tripId]/[queryId]`.
 
 ## Proposed Changes
 
 ### [NEW] Frontend Application (`/ui`)
-A new Next.js application will be initialized.
 
 #### [NEW] Pages & Components
-- **`app/page.tsx`**: Main entry point handling the flow logic (Wizard style state management).
-- **`components/SplashScreen.tsx`**: Custom generated graphics, fades out on start.
-- **`components/SearchForm.tsx`**: "Create a New Trip" style input.
-- **`components/LoadingState.tsx`**: visually rich waiting screen with "cute" animations and status text.
-- **`components/ResultsGrid.tsx`**: Masonry or grid layout for processed TikToks.
-- **`components/VideoCard.tsx`**: Details component showing video, extracted text, and transcript.
+- **`app/page.tsx`**: Main entry point.
+- **`components/TripDetails.tsx`**: [NEW] View showing all queries within a specific trip (e.g., "Food", "Shopping").
+- **`components/QueryForm.tsx`**: [NEW] Modal to add a new search query to an existing trip.
+- **`components/TripsDashboard.tsx`**: Updated to navigate to TripDetails instead of Results.
 
-#### [NEW] Trips Architecture
-- **Root Directory**: All trip data is now nested under `/Users/rhu/projects/tiktok_scrapper/trips/[hash]`.
-- **`metadata.json`**: Each trip folder contains details like title, query, and creation date.
-- **Persistence**: The app scans the `/trips` directory on load to display existing planners.
-
-#### [NEW] Enhanced Loading Experience
-- **Granular Updates**: The UI now displays specific actions (e.g., "Downloading: 'Exploring Shinjuku' @tokyotraveller").
-- **Dynamic Graphics**: Interactive animations triggered by the current step of the pipeline.
-
-#### [NEW] Component Architecture (Expanded)
-21. **`TripsDashboard`**: Grid of existing trip plans.
-22. **`TripForm`**: Modal/View for creating a new trip with a title.
-23. **`LiveStatus`**: Real-time ticker showing current video processing details.
-24. **`ProgressBar`**: High-fidelity animated bar with estimated time remaining.
+#### [NEW] Trips Architecture (Multi-Query)
+- **Root**: `trips/[tripId]/`
+  - `metadata.json` (Trip Title)
+  - `[queryId]/` (Subfolder for each query)
+    - `metadata.json` (Query string, status)
+    - `urls.txt`
+    - `videos/` (Processed content)
 
 #### [NEW] API Routes (Updated)
-- **`app/api/trips/route.ts`**: Handles listing and creating trip metadata.
-- **`app/api/search/route.ts`**: Accepts `tripId`, saves results to trip folder.
-- **`app/api/download/route.ts`**: Accepts `tripId`, pipes logs to frontend.
-- **`app/api/process/route.ts`**: Accepts `tripId`.
+- **`app/api/trips/route.ts`**: Handles creating Trips.
+- **`app/api/queries/route.ts`**: [NEW] Handles creating Queries within a Trip.
+- **`app/api/search/route.ts`**: Now requires `queryId`.
+- **`app/api/download/route.ts`**: Now requires `queryId`.
+- **`app/api/process/route.ts`**: Now requires `queryId`.
 
 
 #### [NEW] Assets

@@ -55,7 +55,7 @@ test_output/
 antigravity*.md
 
 # Trip data
-trips/
+/trips/
 
 # Debug output
 debug/

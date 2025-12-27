@@ -6,14 +6,15 @@ import path from 'path';
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const tripId = searchParams.get('tripId');
+    const queryId = searchParams.get('queryId');
     const videoId = searchParams.get('id');
 
-    if (!tripId || !videoId) {
-        return NextResponse.json({ error: 'tripId and id required' }, { status: 400 });
+    if (!tripId || !queryId || !videoId) {
+        return NextResponse.json({ error: 'tripId, queryId, and id required' }, { status: 400 });
     }
 
     const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '/Users/rhu/projects/tiktok_scrapper/';
-    const videoPath = path.join(PROJECT_ROOT, 'trips', tripId, 'videos', videoId, 'video.mp4');
+    const videoPath = path.join(PROJECT_ROOT, 'trips', tripId, queryId, 'videos', videoId, 'video.mp4');
 
     try {
         const stats = await fs.stat(videoPath);

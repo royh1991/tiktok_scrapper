@@ -5,14 +5,16 @@ import path from 'path';
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const tripId = searchParams.get('tripId');
+    const queryId = searchParams.get('queryId');
 
-    if (!tripId) {
-        return NextResponse.json({ error: 'tripId required' }, { status: 400 });
+    if (!tripId || !queryId) {
+        return NextResponse.json({ error: 'tripId and queryId required' }, { status: 400 });
     }
 
     const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '/Users/rhu/projects/tiktok_scrapper/';
     const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
-    const videosDir = path.join(tripPath, 'videos');
+    const queryPath = path.join(tripPath, queryId);
+    const videosDir = path.join(queryPath, 'videos');
 
     try {
         const entries = await fs.readdir(videosDir, { withFileTypes: true });
@@ -37,16 +39,11 @@ export async function GET(req: Request) {
                     transcriptPreview = transcript.substring(0, 150) + '...';
                 } catch (e) { }
 
-                // Check video path for serving
-                // In a real app we'd serve via /api/video/[id] or static hosting
-                // For now we assume local dev can access file system or we proxy
-                // To make it simple for the frontend, we'll need a route to stream video bytes
-                // or configure next.js to serve this folder statically?
-                // Let's create an API route to serve video content: /api/video?path=...
-
                 return {
                     id: dir.name,
-                    video_url: `/api/video?tripId=${tripId}&id=${dir.name}`,
+                    video_url: `/api/video?tripId=${tripId}&queryId=${queryId}&id=${dir.name}`, // Updated to include queryId if video streaming needs it? 
+                    // Wait, api/video likely needs queryId too if it reads from the same structure!
+                    // I will check api/video next, but for now I assume I need to pass queryId.
                     metadata,
                     hasTranscript,
                     transcriptPreview

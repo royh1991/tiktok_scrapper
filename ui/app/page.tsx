@@ -12,8 +12,9 @@ import { EmptyState } from '@/components/EmptyState';
 import { TripsDashboard } from '@/components/TripsDashboard';
 import { TripForm } from '@/components/TripForm';
 import { AnimatePresence, motion } from 'framer-motion';
+import { TripDetails } from '@/components/TripDetails';
 
-type FlowState = 'splash' | 'idle' | 'searching' | 'downloading' | 'processing' | 'results';
+type FlowState = 'splash' | 'idle' | 'view-trip' | 'searching' | 'downloading' | 'processing' | 'results';
 
 export default function Home() {
   const [state, setState] = useState<FlowState>('splash');
@@ -23,6 +24,9 @@ export default function Home() {
 
   const [trips, setTrips] = useState<any[]>([]);
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const [activeTrip, setActiveTrip] = useState<any>(null);
+  const [queries, setQueries] = useState<any[]>([]);
+  const [activeQueryId, setActiveQueryId] = useState<string | null>(null);
   const [isTripFormOpen, setIsTripFormOpen] = useState(false);
 
   // Transitions
@@ -44,13 +48,30 @@ export default function Home() {
 
   const handleSelectTrip = async (tripId: string) => {
     setActiveTripId(tripId);
+    const trip = trips.find(t => t.id === tripId);
+    setActiveTrip(trip);
+
+    try {
+      const res = await fetch(`/api/queries?tripId=${tripId}`);
+      const data = await res.json();
+      setQueries(data.queries || []);
+      setState('view-trip');
+    } catch (e) {
+      console.error("Failed to load queries", e);
+      setError('Failed to load trip details');
+    }
+  };
+
+  const handleSelectQuery = async (queryId: string) => {
+    setActiveQueryId(queryId);
     setState('results');
     try {
-      const resultsRes = await fetch(`/api/results?tripId=${tripId}`);
+      // Updated to pass queryId
+      const resultsRes = await fetch(`/api/results?tripId=${activeTripId}&queryId=${queryId}`);
       const data = await resultsRes.json();
       setVideos(data.videos || []);
     } catch (e) {
-      setError('Failed to load trip results');
+      setError('Failed to load query results');
     }
   };
 
@@ -114,28 +135,39 @@ export default function Home() {
       const tripId = tripData.tripId;
       setActiveTripId(tripId);
 
+      // 0.5 Create Query
+      const queryRes = await fetch('/api/queries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tripId, query })
+      });
+      const queryData = await queryRes.json();
+      if (!queryRes.ok) throw new Error(queryData.error || 'Failed to create query');
+
+      const queryId = queryData.queryId;
+
       // 1. Search (Streaming)
-      await streamResponse('/api/search', { query, tripId }, (line) => {
+      await streamResponse('/api/search', { query, tripId, queryId }, (line) => {
         setLogs(prev => [...prev.slice(-100), line]);
       });
 
       // 2. Download (Streaming)
       setState('downloading');
       setLogs([]); // Clear logs to trigger "startup" animation for this phase
-      await streamResponse('/api/download', { tripId }, (line) => {
+      await streamResponse('/api/download', { tripId, queryId }, (line) => {
         setLogs(prev => [...prev.slice(-100), line]);
       });
 
       // 3. Process (Streaming)
       setState('processing');
       setLogs([]); // Clear logs again for processing phase
-      await streamResponse('/api/process', { tripId }, (line) => {
+      await streamResponse('/api/process', { tripId, queryId }, (line) => {
         setLogs(prev => [...prev.slice(-100), line]);
       });
 
       // 4. Fetch Results
       setLogs(prev => [...prev, 'Finalizing itinerary...']);
-      const resultsRes = await fetch(`/api/results?tripId=${tripId}`);
+      const resultsRes = await fetch(`/api/results?tripId=${tripId}&queryId=${queryId}`);
       const data = await resultsRes.json();
       setVideos(data.videos || []);
 
@@ -189,6 +221,24 @@ export default function Home() {
               className="flex-1 flex flex-col justify-center"
             >
               <LoadingState status={state} logs={logs} />
+            </motion.div>
+          )}
+
+          {state === 'view-trip' && activeTrip && (
+            <motion.div
+              key="view-trip"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="flex-1"
+            >
+              <TripDetails
+                trip={activeTrip}
+                queries={queries}
+                onSelectQuery={handleSelectQuery}
+                onAddQuery={() => setIsTripFormOpen(true)}
+                onBack={() => setState('idle')}
+              />
             </motion.div>
           )}
 

@@ -8,12 +8,18 @@ const PROJECT_ROOT = process.env.NEXT_PUBLIC_PROJECT_ROOT || '';
 
 export async function POST(req: Request) {
     try {
-        const { query, tripId } = await req.json();
+        const { query, tripId, queryId } = await req.json();
+
+        if (!tripId || !queryId) {
+            throw new Error("Missing tripId or queryId");
+        }
+
         const scriptPath = path.join(PROJECT_ROOT, 'tiktok_search.py');
         const tripPath = path.join(PROJECT_ROOT, 'trips', tripId);
-        const outputPath = path.join(tripPath, 'urls.txt');
+        const queryPath = path.join(tripPath, queryId);
+        const outputPath = path.join(queryPath, 'urls.txt');
 
-        console.log(`Starting binary search for: ${query} in trip: ${tripId}`);
+        console.log(`Starting binary search for: ${query} in trip: ${tripId} / ${queryId}`);
 
         const pythonProcess = spawn('python', [
             scriptPath,
@@ -30,7 +36,6 @@ export async function POST(req: Request) {
 
                 pythonProcess.stderr.on('data', (data) => {
                     const text = data.toString();
-                    // Optional: filter out unimportant warnings
                     if (!text.includes('Progress:')) {
                         controller.enqueue(data);
                     }
