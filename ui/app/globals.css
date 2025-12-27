@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FDFBF7;
+  --foreground: #1A1A1A;
+
+  /* Retro Palette */
+  --retro-cream: #FDFBF7;
+  --retro-green: #00D18B;
+  --retro-blue: #4D96FF;
+  --retro-pink: #FF6B6B;
+  --retro-yellow: #FFD93D;
+  --retro-black: #1A1A1A;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-retro-cream: var(--retro-cream);
+  --color-retro-green: var(--retro-green);
+  --color-retro-blue: var(--retro-blue);
+  --color-retro-pink: var(--retro-pink);
+  --color-retro-yellow: var(--retro-yellow);
+  --color-retro-black: var(--retro-black);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui;
+  --font-display: var(--font-space), ui-sans-serif, system-ui;
+
+  --shadow-neo: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+  --shadow-neo-lg: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+  --shadow-neo-sm: 2px 2px 0px 0px rgba(0, 0, 0, 1);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Neo-Brutalist Utilities */
+.neo-border {
+  border: 2px solid #1A1A1A;
+}
+
+.neo-card {
+  @apply bg-white border-2 border-[var(--retro-black)] shadow-[var(--shadow-neo)];
+}
+
+.neo-btn {
+  @apply px-6 py-3 font-bold bg-white border-2 border-[var(--retro-black)] shadow-[var(--shadow-neo)] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all hover:-translate-y-1 hover:-translate-x-1 hover:shadow-[var(--shadow-neo-lg)];
+}
+
+.neo-input {
+  @apply border-2 border-[var(--retro-black)] px-4 py-3 bg-white focus:outline-none focus:shadow-[var(--shadow-neo)] transition-shadow;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--retro-cream);
+  border-left: 2px solid var(--retro-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--retro-black);
+  border: 2px solid var(--retro-cream);
+}

@@ -21,12 +21,17 @@ build/
 output/
 downloads/
 
-# Browser profile (contains login cookies/session)
+# Browser profiles (contains login cookies/session)
 browser_profile/
+browser_profiles/
 
 # Whisper model cache
 *.pt
 ~/.cache/whisper/
+
+# ML model caches
+.cache/
+*.onnx
 
 # IDE
 .vscode/
@@ -40,3 +45,17 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Test/experiment directories
+ocr_experiments/
+test_output/
+*.test.py
+
+# Planning docs
+antigravity*.md
+
+# Trip data
+trips/
+
+# Debug output
+debug/
