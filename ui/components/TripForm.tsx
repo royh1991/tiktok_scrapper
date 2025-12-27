@@ -55,7 +55,8 @@ export const TripForm: React.FC<Props> = ({ isOpen, onClose, onSubmit }) => {
                                     placeholder="e.g. 7 Days in Tokyo"
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
-                                    className="neo-input w-full pl-16"
+                                    className="neo-input w-full"
+                                    style={{ paddingLeft: '6rem' }}
                                     required
                                 />
                             </div>
@@ -74,7 +75,8 @@ export const TripForm: React.FC<Props> = ({ isOpen, onClose, onSubmit }) => {
                                     placeholder="e.g. tokyo travel tips 2024"
                                     value={query}
                                     onChange={(e) => setQuery(e.target.value)}
-                                    className="neo-input w-full pl-16"
+                                    className="neo-input w-full"
+                                    style={{ paddingLeft: '6rem' }}
                                     required
                                 />
                             </div>

@@ -119,8 +119,8 @@ def frame_to_base64(frame, max_size=384):
     return base64.standard_b64encode(buffer).decode('utf-8')
 
 
-def ocr_batch(frames, batch_id: int = 0):
-    """Send a batch of frames to Claude in one API call."""
+def ocr_batch(frames, batch_id: int = 0, max_retries: int = 3):
+    """Send a batch of frames to Claude in one API call with retry logic."""
     content = []
     for f in frames:
         img_b64 = frame_to_base64(f['image'], max_size=384)
@@ -147,36 +147,53 @@ Rules:
 - Return ONLY the JSON array'''
     })
 
-    response = httpx.post(
-        'https://api.anthropic.com/v1/messages',
-        headers={
-            'x-api-key': ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
-        },
-        json={
-            'model': 'claude-3-5-haiku-latest',
-            'max_tokens': 1000,
-            'messages': [{'role': 'user', 'content': content}]
-        },
-        timeout=90.0
-    )
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            response = httpx.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'x-api-key': ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01',
+                    'content-type': 'application/json',
+                },
+                json={
+                    'model': 'claude-3-5-haiku-latest',
+                    'max_tokens': 1000,
+                    'messages': [{'role': 'user', 'content': content}]
+                },
+                timeout=90.0
+            )
 
-    if response.status_code != 200:
-        raise Exception(f"API error: {response.status_code}")
+            if response.status_code == 429:
+                # Rate limited - wait and retry
+                retry_after = int(response.headers.get('retry-after', 2 ** attempt))
+                time.sleep(retry_after)
+                last_error = "Rate limited (429)"
+                continue
 
-    result = response.json()
-    text = result['content'][0]['text']
+            if response.status_code != 200:
+                raise Exception(f"API error: {response.status_code}")
 
-    try:
-        items = json.loads(text)
-        return [item['text'] for item in items if 'text' in item]
-    except:
-        import re
-        return re.findall(r'"text":\s*"([^"]+)"', text)
+            result = response.json()
+            text = result['content'][0]['text']
+
+            try:
+                items = json.loads(text)
+                return [item['text'] for item in items if 'text' in item]
+            except:
+                import re
+                return re.findall(r'"text":\s*"([^"]+)"', text)
+
+        except httpx.TimeoutException:
+            last_error = "Timeout"
+            time.sleep(2 ** attempt)
+            continue
+
+    raise Exception(f"Failed after {max_retries} retries: {last_error}")
 
 
-def ocr_frames_batched(frames: list, output_path: Path, batch_size: int = 50, max_workers: int = 4) -> dict:
+def ocr_frames_batched(frames: list, output_path: Path, batch_size: int = 50, max_workers: int = 2) -> dict:
     """
     Run OCR on frames using batched parallel API calls.
 

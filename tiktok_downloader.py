@@ -476,6 +476,9 @@ class TikTokDownloader:
                             result.file_path = video_path
                             result.file_size = len(content)
                             result.metadata = metadata
+                            
+                            # Explicitly log for frontend UI
+                            print(f"DOWNLOAD_SUCCESS: @{metadata.creator_nickname} - {metadata.caption[:50]}...", flush=True)
                         else:
                             result.error = "File too small"
                     else:

@@ -32,15 +32,61 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
 
     const currentStep = getStepIndex();
 
+    // Playful startup messages to fill the void while Python warms up
+    const [startupLog, setStartupLog] = React.useState<string>("");
+
+    React.useEffect(() => {
+        if (logs.length > 0) return; // Stop fake logs once real ones arrive
+
+        const startupMessages = [
+            "Fueling the jet...",
+            "Checking passport validity...",
+            "Contacting local guides...",
+            "Unfolding map...",
+            "Brewing coffee for the pilot..."
+        ];
+
+        let i = 0;
+        setStartupLog(startupMessages[0]);
+
+        const interval = setInterval(() => {
+            if (i < startupMessages.length - 1) {
+                i++;
+                setStartupLog(startupMessages[i]);
+            }
+        }, 5000); // 5 seconds per message, no loop
+
+        return () => clearInterval(interval);
+    }, [logs.length]);
+
     // Humanize the latest log for the visual display
+    // Humanize the log, prioritizing important success messages from the recent history
     const getHumanizedLog = () => {
+        // Look at the last 20 logs to find a 'success' or 'scouting' message
+        // This prevents the status from flickering if a boring log comes right after an interesting one
+        const recentLogs = logs.slice(-20).reverse();
+
+        const successLog = recentLogs.find(l => l.includes('DOWNLOAD_SUCCESS:'));
+        if (successLog) {
+            const clean = successLog.replace('DOWNLOAD_SUCCESS:', '').trim();
+            return `Downloaded: ${clean}`;
+        }
+
+        const scoutingLog = recentLogs.find(l => l.includes('tiktok.com') && l.includes('@'));
+        if (scoutingLog) {
+            const match = scoutingLog.match(/@([^/]+)/);
+            return match ? `Deep scouting insights from @${match[1]}...` : "Extracting travel secrets...";
+        }
+
+        // Fallback to the very last log if no priority message found
         const last = logs[logs.length - 1];
         if (!last) return null;
 
-        if (last.includes('tiktok.com')) {
-            const match = last.match(/@([^/]+)/);
-            return match ? `Deep scouting insights from @${match[1]}...` : "Extracting travel secrets...";
+        // FILTER: Ignore raw code/technical logs
+        if (last.includes('await self.') || last.includes('cdp_') || last.includes('result =')) {
+            return null;
         }
+
         if (last.toLowerCase().includes('downloading')) {
             return "Packing your personalized travel guide...";
         }
@@ -49,6 +95,9 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
         }
         return last;
     };
+
+    // Use the computed human log, or fall back to the startup animation log
+    const displayLog = getHumanizedLog() || startupLog || steps[Math.min(currentStep, 2)].desc;
 
     return (
         <div className="w-full max-w-6xl mx-auto py-12 px-6">
@@ -59,7 +108,7 @@ export const LoadingState = ({ status, logs }: LoadingStateProps) => {
                     <div className="neo-card p-12 bg-white">
                         <VisualStatus
                             stage={status as any}
-                            latestLog={getHumanizedLog() || steps[Math.min(currentStep, 2)].desc}
+                            latestLog={displayLog}
                         />
                     </div>
                 </div>

@@ -56,7 +56,7 @@ export const SearchHero = ({ onSearch, isSearching }: SearchHeroProps) => {
                     </div>
                     <button
                         disabled={isSearching}
-                        className="neo-btn bg-retro-blue text-white hover:bg-white hover:text-black flex items-center justify-center gap-2"
+                        className="neo-btn !bg-retro-blue !text-white hover:!bg-white hover:!text-black flex items-center justify-center gap-2"
                     >
                         {isSearching ? <span className="animate-spin">⏳</span> : <Plane className="w-5 h-5" />}
                         <span>Let's Go</span>

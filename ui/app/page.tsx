@@ -121,12 +121,14 @@ export default function Home() {
 
       // 2. Download (Streaming)
       setState('downloading');
+      setLogs([]); // Clear logs to trigger "startup" animation for this phase
       await streamResponse('/api/download', { tripId }, (line) => {
         setLogs(prev => [...prev.slice(-100), line]);
       });
 
       // 3. Process (Streaming)
       setState('processing');
+      setLogs([]); // Clear logs again for processing phase
       await streamResponse('/api/process', { tripId }, (line) => {
         setLogs(prev => [...prev.slice(-100), line]);
       });
