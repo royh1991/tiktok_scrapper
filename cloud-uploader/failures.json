@@ -1,0 +1,75 @@
+[
+  {
+    "timestamp": "2025-12-27T09:17:45.041585",
+    "type": "download",
+    "query_index": 20000,
+    "query": "Best sunset spots in Cappadocia",
+    "city": "Cappadocia",
+    "country": "Turkey",
+    "error": "2 URLs failed to download",
+    "details": {
+      "failed_urls": [
+        "https://www.tiktok.com/@tricialeejy/video/7579197564809907477",
+        "https://www.tiktok.com/@czech.it/video/7336124832666471713"
+      ]
+    }
+  },
+  {
+    "timestamp": "2025-12-27T09:23:26.337750",
+    "type": "download",
+    "query_index": 20000,
+    "query": "Best sunset spots in Cappadocia",
+    "city": "Cappadocia",
+    "country": "Turkey",
+    "error": "1 URLs failed to download",
+    "details": {
+      "failed_urls": [
+        "https://www.tiktok.com/@tricialeejy/video/7579197564809907477"
+      ]
+    }
+  },
+  {
+    "timestamp": "2025-12-27T09:45:34.838997",
+    "type": "download",
+    "query_index": 20000,
+    "query": "Best sunset spots in Cappadocia",
+    "city": "Cappadocia",
+    "country": "Turkey",
+    "error": "1 URLs failed to download",
+    "details": {
+      "failed_urls": [
+        "https://www.tiktok.com/@tricialeejy/video/7579197564809907477"
+      ]
+    }
+  },
+  {
+    "timestamp": "2025-12-27T10:12:07.722601",
+    "type": "download",
+    "query_index": 20000,
+    "query": "Best sunset spots in Cappadocia",
+    "city": "Cappadocia",
+    "country": "Turkey",
+    "error": "1 URLs failed to download",
+    "details": {
+      "failed_urls": [
+        "https://www.tiktok.com/@tricialeejy/video/7579197564809907477"
+      ]
+    }
+  },
+  {
+    "timestamp": "2025-12-27T10:32:52.377220",
+    "type": "process",
+    "query_index": 20000,
+    "query": "Best sunset spots in Cappadocia",
+    "city": "Cappadocia",
+    "country": "Turkey",
+    "error": "3 videos failed processing",
+    "details": {
+      "failed_videos": [
+        "7544004582494457108",
+        "7417552318696017185",
+        "7499859809282313527"
+      ]
+    }
+  }
+]

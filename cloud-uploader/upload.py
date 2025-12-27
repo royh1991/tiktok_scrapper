@@ -77,14 +77,10 @@ def validate_processing(video_dir: Path) -> tuple[bool, list[str]]:
     if not (video_dir / "video.mp4").exists():
         issues.append("Missing video.mp4")
 
-    # Check transcript
+    # Check transcript (file must exist, but content can be empty for music-only videos)
     transcript_path = video_dir / "transcript.txt"
     if not transcript_path.exists():
         issues.append("Missing transcript.txt")
-    else:
-        content = transcript_path.read_text().strip()
-        if len(content) < 3:
-            issues.append("Transcript is empty or too short")
 
     # Check OCR
     ocr_path = video_dir / "ocr.json"
@@ -122,6 +118,7 @@ def extract_video_info(video_dir: Path) -> dict:
         "transcript": None,
         "ocr_items": [],
         "ocr_scenes": 0,
+        "description": None,
         "frame_count": 0,
     }
 
@@ -157,6 +154,7 @@ def extract_video_info(video_dir: Path) -> dict:
                 ocr_data = json.load(f)
                 info["ocr_items"] = ocr_data.get("items", [])
                 info["ocr_scenes"] = ocr_data.get("scenes", 0)
+                info["description"] = ocr_data.get("description")
         except json.JSONDecodeError:
             pass
 
@@ -255,6 +253,7 @@ def insert_to_database(
     gcs_prefix: str,
     frames_uploaded: int,
     dry_run: bool = False,
+    query: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Insert video record into Supabase database.
@@ -276,9 +275,11 @@ def insert_to_database(
             title=info.get("caption"),
             transcript=info.get("transcript"),
             ocr_text=ocr_text,
+            description=info.get("description"),
             gcs_prefix=gcs_prefix,
             frame_count=frames_uploaded,
             processed_at=datetime.now(),
+            query=query,
         )
         return record
     except Exception as e:
@@ -314,6 +315,7 @@ def process_video(
     include_video: bool = False,
     max_frames: int = 20,
     dry_run: bool = False,
+    query: Optional[str] = None,
 ) -> dict:
     """
     Process a single video directory: validate, upload to GCS, insert into DB.
@@ -373,7 +375,7 @@ def process_video(
         return result
 
     # Insert into database
-    record = insert_to_database(video_id, info, gcs_prefix, frames_uploaded, dry_run)
+    record = insert_to_database(video_id, info, gcs_prefix, frames_uploaded, dry_run, query)
 
     if record:
         result["status"] = "success"
@@ -417,6 +419,12 @@ def main():
         "--keep", "-k",
         action="store_true",
         help="Keep local files after upload",
+    )
+    parser.add_argument(
+        "--query", "-q",
+        type=str,
+        default=None,
+        help="Query string to associate with uploaded videos",
     )
 
     args = parser.parse_args()
@@ -463,6 +471,7 @@ def main():
             include_video=args.include_video,
             max_frames=args.max_frames,
             dry_run=args.dry_run,
+            query=args.query,
         )
 
         if result["status"] == "success":

@@ -4,6 +4,21 @@ Automated pipeline for TikTok video research: search → download → process �
 
 ## Quick Start
 
+### Local (Mac)
+```bash
+cd /Users/rhu/projects/tiktok_scrapper
+
+# Process queries locally (uses --dev for browser)
+python3 cloud-uploader/pipeline.py --local --start 0 --count 10
+
+# Single query test
+python3 cloud-uploader/pipeline.py --local --query "tokyo ramen spots" --max-results 5
+
+# Process all queries
+python3 cloud-uploader/pipeline.py --local --start 0
+```
+
+### Droplet (Production)
 ```bash
 cd /home/tiktok/tiktok_scrapper_repo
 export DISPLAY=:99
@@ -18,9 +33,54 @@ python3 cloud-uploader/pipeline.py --resume --count 50
 python3 cloud-uploader/pipeline.py --query "tokyo ramen spots" --max-results 5
 ```
 
-## Retry & Failure Logic
+## Architecture
 
-The pipeline has comprehensive retry logic at every step:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PIPELINE ORCHESTRATOR                     │
+│                      (pipeline.py)                           │
+├─────────────────────────────────────────────────────────────┤
+│  • Reads queries from research_list.csv                      │
+│  • Manages retry logic at each step                          │
+│  • Tracks progress for resume capability                     │
+│  • Handles graceful shutdown (Ctrl+C)                        │
+│  • Monitors disk space                                       │
+│  • Cleans up Chrome processes periodically                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│   SEARCH     │    │   DOWNLOAD   │    │   PROCESS    │
+│ (Serper API) │───▶│ (zendriver)  │───▶│  (Whisper +  │
+│              │    │              │    │   Claude)    │
+└──────────────┘    └──────────────┘    └──────────────┘
+                                               │
+                    ┌──────────────────────────┘
+                    ▼
+        ┌──────────────────────┐
+        │       UPLOAD         │
+        │  (GCS + Supabase)    │
+        │                      │
+        │  Only delete mp4     │
+        │  after DB confirms   │
+        └──────────────────────┘
+```
+
+## Anti-Detection Strategy
+
+The pipeline implements several measures to avoid TikTok rate limiting:
+
+| Measure | Implementation |
+|---------|----------------|
+| Random delays | 2-5s before download, 5-10s between queries |
+| Browser rotation | Uses 3 workers with separate profiles |
+| Profile cleanup | Clears cache/cookies every 3 queries |
+| Chrome cleanup | Kills zombie processes periodically |
+| Variable workers | Can adjust worker count per run |
+| Duplicate skip | Checks database before downloading |
+
+## Retry & Failure Logic
 
 | Step | Max Retries | Backoff | Behavior |
 |------|-------------|---------|----------|
@@ -55,15 +115,49 @@ All failures are logged to `cloud-uploader/failures.json`:
 | `upload_failed` | Upload failed after 3 retries |
 | `error` | Unexpected exception |
 
+## Production Safety Features
+
+### Graceful Shutdown
+Press Ctrl+C to stop gracefully. The pipeline will:
+1. Finish the current query
+2. Save progress to progress.json
+3. Exit cleanly
+
+### Disk Space Monitoring
+Pipeline checks disk space before each query and stops if < 1GB available.
+
+### Video Deletion Safety
+Videos (mp4) are ONLY deleted after:
+1. Successfully uploaded to GCS
+2. Successfully inserted into Supabase
+3. Confirmed by checking `db.video_exists(video_id)`
+
+### Duplicate Detection
+Before downloading, the pipeline checks the database for existing videos:
+- Extracts video IDs from search result URLs
+- Queries `db.get_all_video_ids()` to get existing IDs
+- Skips downloading videos already in the database
+- Logs: "Skipped N videos already in database"
+
 ## Dependencies
 
-### System Packages
+### Local (Mac)
 ```bash
-apt-get install -y ffmpeg xvfb chromium-browser
+# Install ffmpeg
+brew install ffmpeg
+
+# Python packages
+pip3 install httpx python-dotenv aiohttp aiofiles zendriver \
+    opencv-python-headless google-cloud-storage supabase
+
+# PyTorch + Whisper
+pip3 install torch openai-whisper
 ```
 
-### Python Packages
+### Droplet (Linux)
 ```bash
+apt-get install -y ffmpeg xvfb chromium-browser
+
 pip3 install --break-system-packages \
     httpx \
     python-dotenv \
@@ -123,8 +217,8 @@ research_list.csv
 ┌──────────────────┐
 │  5. UPLOAD       │  upload.py
 │  - GCS bucket    │  → gs://bucket/videos/{video_id}/
-│  - Supabase DB   │  → Insert record with metadata
-│  - Cleanup local │
+│  - Supabase DB   │  → Insert record with metadata + query
+│  - Cleanup mp4   │  → Only after confirmed in DB
 └──────────────────┘
 ```
 
@@ -136,13 +230,14 @@ Main orchestrator that runs the full pipeline for each query.
 ```bash
 # Options
 --start N        # Start from query index N (default: 0)
---count N        # Process N queries
+--count N        # Process N queries (omit to process all)
 --query "..."    # Process single query instead of CSV
 --max-results N  # Max videos per query (default: 20)
 --workers N      # Browser workers for download (default: 3)
 --whisper-model  # tiny|base|small|medium|large (default: base)
 --dry-run        # Search only, don't download
 --resume         # Skip already processed queries
+--local          # Use dev settings for local Mac development
 ```
 
 ### upload.py
@@ -155,6 +250,7 @@ Uploads processed videos to GCS and Supabase.
 --include-video  # Also upload video.mp4 to GCS
 --dry-run        # Preview without uploading
 --keep           # Keep local files after upload
+--query "..."    # Query string to store with videos
 ```
 
 ### progress.json
@@ -173,7 +269,7 @@ Tracks processed queries for resume capability.
 output/
 └── query_00000_Tokyo_weekend_itinerary_2024/
     └── 7319467787859053825/
-        ├── video.mp4              # Downloaded video
+        ├── video.mp4              # Downloaded video (deleted after upload)
         ├── metadata.json          # {video_id, creator, caption, ...}
         ├── audio.mp3              # Extracted audio
         ├── transcript.txt         # Whisper transcription
@@ -203,15 +299,29 @@ gs://tiktokscrapper-videos/
 
 Table: `videos`
 ```sql
-video_id        TEXT PRIMARY KEY
-url             TEXT
-author          TEXT
-title           TEXT
-transcript      TEXT
-ocr_text        TEXT
-gcs_prefix      TEXT
-frame_count     INTEGER
-processed_at    TIMESTAMP
+CREATE TABLE videos (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id        TEXT UNIQUE NOT NULL,
+  url             TEXT,
+  author          TEXT,
+  title           TEXT,
+  transcript      TEXT,
+  ocr_text        TEXT,
+  gcs_prefix      TEXT,
+  frame_count     INTEGER,
+  query           TEXT,                    -- NEW: search query that found this video
+  processed_at    TIMESTAMP WITH TIME ZONE,
+  uploaded_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Index for searching
+CREATE INDEX idx_videos_query ON videos(query);
+CREATE INDEX idx_videos_author ON videos(author);
+```
+
+**IMPORTANT**: Add the `query` column if it doesn't exist:
+```sql
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS query TEXT;
 ```
 
 ## Validation Rules
@@ -235,6 +345,7 @@ export DISPLAY=:99
 ### Browser crashes
 ```bash
 rm -rf /home/tiktok/tiktok_scrapper_repo/browser_profiles/*
+pkill -9 chrome
 ```
 
 ### Disk full
@@ -242,6 +353,7 @@ rm -rf /home/tiktok/tiktok_scrapper_repo/browser_profiles/*
 pip3 cache purge
 rm -rf /root/.cache/pip/*
 apt-get clean
+# Pipeline will auto-stop when disk < 1GB
 ```
 
 ### Rate limited by Serper
@@ -249,6 +361,12 @@ The search automatically handles rate limits. If persistent, add delays between 
 
 ### OCR failing
 Check ANTHROPIC_API_KEY is set and has credits.
+
+### Upload failures
+Check GCS credentials and Supabase connection:
+```bash
+python3 -c "import db; print(db.get_stats())"
+```
 
 ## Performance
 
@@ -269,3 +387,21 @@ python3 cloud-uploader/pipeline.py --resume --count 100
 ```
 
 Already processed queries (in progress.json) will be skipped.
+
+## Monitoring
+
+Watch logs in real-time:
+```bash
+tail -f cloud-uploader/logs/latest.log
+```
+
+Check progress:
+```bash
+cat cloud-uploader/progress.json
+cat cloud-uploader/failures.json
+```
+
+Check database:
+```bash
+python3 -c "import db; print(db.get_stats())"
+```

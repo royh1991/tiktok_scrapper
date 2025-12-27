@@ -69,9 +69,11 @@ def insert_video(
     duration_sec: Optional[float] = None,
     transcript: Optional[str] = None,
     ocr_text: Optional[str] = None,
+    description: Optional[str] = None,
     gcs_prefix: Optional[str] = None,
     frame_count: Optional[int] = None,
     processed_at: Optional[datetime] = None,
+    query: Optional[str] = None,
 ) -> dict:
     """
     Insert a new video record into the database.
@@ -88,9 +90,11 @@ def insert_video(
         "duration_sec": duration_sec,
         "transcript": transcript,
         "ocr_text": ocr_text,
+        "description": description,
         "gcs_prefix": gcs_prefix,
         "frame_count": frame_count,
         "processed_at": processed_at.isoformat() if processed_at else None,
+        "query": query,
     }
 
     # Remove None values

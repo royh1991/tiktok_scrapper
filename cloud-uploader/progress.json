@@ -1,0 +1,13 @@
+{
+  "processed_queries": [
+    "20000:Best sunset spots in Cappadocia",
+    "20001:Cappadocia winter travel guide",
+    "20002:Fairy chimney rock formations",
+    "20003:Cappadocia local food tour"
+  ],
+  "stats": {
+    "total": 4,
+    "success": 4,
+    "failed": 0
+  }
+}

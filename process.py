@@ -26,6 +26,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -34,6 +35,10 @@ import httpx
 import numpy as np
 
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+
+# Batch API settings
+BATCH_API_POLL_INTERVAL = 5  # seconds between status checks
+BATCH_API_MAX_WAIT = 600  # max seconds to wait for batch completion
 
 
 def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -193,6 +198,335 @@ Rules:
     raise Exception(f"Failed after {max_retries} retries: {last_error}")
 
 
+# ============================================================
+# Batch API OCR (50% cheaper, async processing)
+# ============================================================
+
+def create_ocr_request(frames: list, request_id: str) -> dict:
+    """Create a single batch request for a group of frames."""
+    content = []
+    for f in frames:
+        img_b64 = frame_to_base64(f['image'], max_size=384)
+        content.append({
+            'type': 'image',
+            'source': {
+                'type': 'base64',
+                'media_type': 'image/jpeg',
+                'data': img_b64
+            }
+        })
+
+    content.append({
+        'type': 'text',
+        'text': '''These are frames from a TikTok video. Extract ALL visible text overlays.
+
+Return a JSON array with one object per unique text item:
+[{"text": "item name"}, {"text": "another item"}, ...]
+
+Rules:
+- Only include text overlays (titles, lists, captions)
+- Ignore watermarks, usernames, UI elements
+- Deduplicate - include each text only once
+- Return ONLY the JSON array'''
+    })
+
+    return {
+        'custom_id': request_id,
+        'params': {
+            'model': 'claude-3-5-haiku-latest',
+            'max_tokens': 1000,
+            'messages': [{'role': 'user', 'content': content}]
+        }
+    }
+
+
+def submit_batch(requests: list[dict]) -> str:
+    """Submit a batch of requests to the Batch API. Returns batch_id."""
+    response = httpx.post(
+        'https://api.anthropic.com/v1/messages/batches',
+        headers={
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        },
+        json={'requests': requests},
+        timeout=120.0
+    )
+
+    if response.status_code != 200:
+        raise Exception(f"Batch submit failed: {response.status_code} - {response.text}")
+
+    result = response.json()
+    return result['id']
+
+
+def poll_batch_status(batch_id: str) -> dict:
+    """Poll batch status until complete or timeout."""
+    start_time = time.time()
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed > BATCH_API_MAX_WAIT:
+            raise Exception(f"Batch {batch_id} timed out after {BATCH_API_MAX_WAIT}s")
+
+        response = httpx.get(
+            f'https://api.anthropic.com/v1/messages/batches/{batch_id}',
+            headers={
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            timeout=30.0
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Batch status check failed: {response.status_code}")
+
+        status = response.json()
+        processing_status = status.get('processing_status')
+
+        if processing_status == 'ended':
+            return status
+
+        # Show progress
+        counts = status.get('request_counts', {})
+        succeeded = counts.get('succeeded', 0)
+        processing = counts.get('processing', 0)
+        print(f"       Batch status: {processing} processing, {succeeded} done...", end='\r')
+
+        time.sleep(BATCH_API_POLL_INTERVAL)
+
+
+def retrieve_batch_results(batch_id: str) -> list[dict]:
+    """Retrieve results from a completed batch."""
+    response = httpx.get(
+        f'https://api.anthropic.com/v1/messages/batches/{batch_id}/results',
+        headers={
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+        },
+        timeout=120.0
+    )
+
+    if response.status_code != 200:
+        raise Exception(f"Batch results retrieval failed: {response.status_code}")
+
+    # Results come as newline-delimited JSON
+    results = []
+    for line in response.text.strip().split('\n'):
+        if line:
+            results.append(json.loads(line))
+
+    return results
+
+
+def parse_ocr_response(text: str) -> list[str]:
+    """Parse OCR response text into list of items."""
+    try:
+        items = json.loads(text)
+        return [item['text'] for item in items if 'text' in item]
+    except:
+        import re
+        return re.findall(r'"text":\s*"([^"]+)"', text)
+
+
+def ocr_frames_batch_api(frames: list, output_path: Path, batch_size: int = 50) -> dict:
+    """
+    Run OCR on frames using the Batch API (50% cheaper).
+
+    Args:
+        frames: List of frame dicts with 'image' key
+        output_path: Path to save ocr.json
+        batch_size: Frames per request (default 50)
+    """
+    print(f"  [3/4] Running OCR via Batch API ({len(frames)} frames)...")
+
+    if not frames:
+        return {"items": [], "scenes": 0}
+
+    if not ANTHROPIC_API_KEY:
+        print("       Warning: No ANTHROPIC_API_KEY, skipping OCR")
+        return {"items": [], "scenes": len(frames)}
+
+    # Create batch requests
+    requests = []
+    for i in range(0, len(frames), batch_size):
+        batch_frames = frames[i:i + batch_size]
+        request_id = f"ocr_{i//batch_size}_{uuid.uuid4().hex[:8]}"
+        requests.append(create_ocr_request(batch_frames, request_id))
+
+    print(f"       Submitting {len(requests)} request(s) to Batch API...")
+
+    try:
+        # Submit batch
+        batch_id = submit_batch(requests)
+        print(f"       Batch ID: {batch_id}")
+
+        # Poll for completion
+        status = poll_batch_status(batch_id)
+        print()  # Clear the status line
+
+        counts = status.get('request_counts', {})
+        print(f"       Batch complete: {counts.get('succeeded', 0)} succeeded, {counts.get('errored', 0)} failed")
+
+        # Retrieve results
+        results = retrieve_batch_results(batch_id)
+
+        # Parse all OCR items
+        all_items = []
+        for result in results:
+            if result.get('result', {}).get('type') == 'succeeded':
+                message = result['result']['message']
+                text = message['content'][0]['text']
+                items = parse_ocr_response(text)
+                all_items.extend(items)
+
+    except Exception as e:
+        print(f"       Batch API error: {e}")
+        print("       Falling back to real-time API...")
+        return ocr_frames_batched(frames, output_path, batch_size, max_workers=2)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_items = []
+    for item in all_items:
+        item_lower = item.lower().strip()
+        if item_lower not in seen:
+            seen.add(item_lower)
+            unique_items.append(item)
+
+    result = {
+        "scenes": len(frames),
+        "items": unique_items
+    }
+
+    # Save results
+    output_path.write_text(json.dumps(result, indent=2))
+    print(f"       Found {len(unique_items)} unique text items (50% cost savings!)")
+
+    return result
+
+
+# ============================================================
+# Claude Code CLI OCR (uses Claude subscription, not API credits)
+# ============================================================
+
+def ocr_with_claude_code(frame_paths: list[str], max_retries: int = 3) -> dict:
+    """Run OCR using Claude Code CLI with Haiku model. Returns {items: [...], description: "..."}."""
+    import subprocess
+    import re
+
+    # Build prompt with file paths for Claude Code to read
+    files_list = '\n'.join(frame_paths)
+    prompt = f"""Read these image files and extract ALL visible text overlays:
+
+{files_list}
+
+Return ONLY valid JSON with this exact structure, no other text:
+{{
+  "items": ["text item 1", "text item 2"],
+  "description": "Brief description of what's happening in the video (1-2 sentences)"
+}}
+
+Rules for items:
+- Only include text overlays (titles, lists, captions)
+- Ignore watermarks, usernames, UI elements
+- Deduplicate - include each text only once
+- Return empty array [] if no text found
+
+Rules for description:
+- Describe the visual content and what the video shows
+- Keep it concise (1-2 sentences)
+- Focus on the main subject/activity"""
+
+    for attempt in range(max_retries):
+        try:
+            # Use Haiku model for fast, cheap OCR (not the user's default model)
+            result = subprocess.run(
+                ['claude', '-p', prompt, '--output-format', 'text', '--model', 'claude-3-5-haiku-latest'],
+                capture_output=True,
+                text=True,
+                timeout=180
+            )
+
+            if result.returncode != 0:
+                raise Exception(f"Claude Code error: {result.stderr}")
+
+            output = result.stdout.strip()
+
+            # Extract JSON object from output
+            json_match = re.search(r'\{[^{}]*"items"[^{}]*\}', output, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                return {
+                    "items": data.get("items", []),
+                    "description": data.get("description", "")
+                }
+
+            # Fallback: try to parse the whole output as JSON
+            try:
+                data = json.loads(output)
+                return {
+                    "items": data.get("items", []),
+                    "description": data.get("description", "")
+                }
+            except:
+                pass
+
+            # Last resort: regex extraction
+            items = re.findall(r'"text":\s*"([^"]+)"', output)
+            return {"items": items, "description": ""}
+
+        except subprocess.TimeoutExpired:
+            print(f"       Attempt {attempt + 1} timed out, retrying...")
+        except json.JSONDecodeError as e:
+            print(f"       Attempt {attempt + 1} JSON parse error: {e}")
+        except Exception as e:
+            print(f"       Attempt {attempt + 1} failed: {e}")
+
+        if attempt < max_retries - 1:
+            time.sleep(2 ** attempt)
+
+    return {"items": [], "description": ""}
+
+
+def ocr_frames_claude_code(frames: list, output_path: Path) -> dict:
+    """Run OCR using Claude Code CLI (uses subscription, not API credits)."""
+    print(f"  [3/4] Running OCR via Claude Code ({len(frames)} frames)...")
+
+    if not frames:
+        return {"items": [], "scenes": 0, "description": ""}
+
+    # Get frame paths
+    frame_paths = [f['path'] for f in frames]
+
+    # Call Claude Code
+    result = ocr_with_claude_code(frame_paths)
+    items = result.get("items", [])
+    description = result.get("description", "")
+
+    # Deduplicate items while preserving order
+    seen = set()
+    unique_items = []
+    for item in items:
+        item_lower = item.lower().strip()
+        if item_lower not in seen:
+            seen.add(item_lower)
+            unique_items.append(item)
+
+    output_data = {
+        "scenes": len(frames),
+        "items": unique_items,
+        "description": description
+    }
+
+    output_path.write_text(json.dumps(output_data, indent=2))
+    print(f"       Found {len(unique_items)} unique text items")
+    if description:
+        print(f"       Description: {description[:60]}...")
+
+    return output_data
+
+
 def ocr_frames_batched(frames: list, output_path: Path, batch_size: int = 50, max_workers: int = 2) -> dict:
     """
     Run OCR on frames using batched parallel API calls.
@@ -313,7 +647,7 @@ def needs_processing(work_dir: Path) -> bool:
     return has_video and not is_processed(work_dir)
 
 
-def process_video(work_dir: Path, whisper_model: str = "base") -> dict:
+def process_video(work_dir: Path, whisper_model: str = "base", use_batch_api: bool = False, use_claude_code: bool = False) -> dict:
     """Process a single video directory."""
     # Find video file
     video_path = work_dir / "video.mp4"
@@ -334,8 +668,13 @@ def process_video(work_dir: Path, whisper_model: str = "base") -> dict:
     # Extract audio
     extract_audio(video_path, audio_path)
 
-    # OCR on frames (batched + parallel)
-    ocr_results = ocr_frames_batched(frames, ocr_path)
+    # OCR on frames (Claude Code CLI, batch API, or real-time parallel)
+    if use_claude_code:
+        ocr_results = ocr_frames_claude_code(frames, ocr_path)
+    elif use_batch_api:
+        ocr_results = ocr_frames_batch_api(frames, ocr_path)
+    else:
+        ocr_results = ocr_frames_batched(frames, ocr_path)
 
     # Transcribe audio
     transcript = transcribe_audio(audio_path, work_dir, whisper_model)
@@ -373,10 +712,16 @@ def find_all_videos(output_dir: Path) -> list[Path]:
     return sorted(dirs)
 
 
-def watch_and_process(output_dir: Path, whisper_model: str = "base", interval: float = 5.0):
+def watch_and_process(output_dir: Path, whisper_model: str = "base", interval: float = 5.0, use_batch_api: bool = False, use_claude_code: bool = False):
     """Watch for new downloads and process them."""
     print(f"=== Watching for new videos ===")
     print(f"Directory: {output_dir}")
+    if use_claude_code:
+        print(f"OCR mode: Claude Code CLI (uses subscription)")
+    elif use_batch_api:
+        print(f"OCR mode: Batch API (50% savings)")
+    else:
+        print(f"OCR mode: Real-time API")
     print(f"Press Ctrl+C to stop")
     print()
 
@@ -388,7 +733,7 @@ def watch_and_process(output_dir: Path, whisper_model: str = "base", interval: f
 
         for work_dir in new_dirs:
             print(f"\nProcessing: {work_dir.name}")
-            result = process_video(work_dir, whisper_model)
+            result = process_video(work_dir, whisper_model, use_batch_api, use_claude_code)
 
             if result["success"]:
                 print(f"  Done in {result['processing_time']}s: {result['scenes']} scenes, {result['ocr_items']} OCR items")
@@ -411,6 +756,12 @@ def main():
                         help="Watch for new downloads and process them")
     parser.add_argument("--reprocess", action="store_true",
                         help="Reprocess already processed directories")
+    parser.add_argument("--batch-ocr", action="store_true",
+                        help="Use Batch API for OCR (50%% cheaper, but async)")
+    parser.add_argument("--use-claude-code", action="store_true",
+                        help="Use Claude Code CLI for OCR (uses subscription, not API credits)")
+    parser.add_argument("--parallel", "-j", type=int, default=1,
+                        help="Number of videos to process in parallel (default: 1)")
 
     args = parser.parse_args()
 
@@ -427,7 +778,7 @@ def main():
     # Watch mode
     if args.watch:
         try:
-            watch_and_process(output_dir, args.model)
+            watch_and_process(output_dir, args.model, use_batch_api=args.batch_ocr, use_claude_code=args.use_claude_code)
         except KeyboardInterrupt:
             print("\nStopped")
         return
@@ -450,32 +801,67 @@ def main():
 
     print(f"=== TikTok Video Processor ===")
     print(f"Videos to process: {len(work_dirs)}")
+    if args.use_claude_code:
+        print(f"OCR mode: Claude Code CLI (Haiku model)")
+    elif args.batch_ocr:
+        print(f"OCR mode: Batch API (50% savings)")
+    else:
+        print(f"OCR mode: Real-time API")
+    if args.parallel > 1:
+        print(f"Parallel workers: {args.parallel}")
     print()
 
-    # Process each directory
+    # Filter out already processed unless --reprocess
+    if not args.reprocess:
+        to_process = [(i, d) for i, d in enumerate(work_dirs, 1) if not is_processed(d)]
+        skipped = len(work_dirs) - len(to_process)
+        if skipped > 0:
+            print(f"Skipping {skipped} already processed videos")
+    else:
+        to_process = list(enumerate(work_dirs, 1))
+
+    # Process videos (parallel or sequential)
     successful = 0
     failed = 0
     total_time = 0
 
-    for i, work_dir in enumerate(work_dirs, 1):
-        # Skip already processed unless --reprocess
-        if not args.reprocess and is_processed(work_dir):
-            print(f"[{i}/{len(work_dirs)}] {work_dir.name} - already processed, skipping")
-            continue
+    if args.parallel > 1 and len(to_process) > 1:
+        # Parallel processing
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        print(f"[{i}/{len(work_dirs)}] {work_dir.name}")
+        def process_one(item):
+            i, work_dir = item
+            result = process_video(work_dir, args.model, use_batch_api=args.batch_ocr, use_claude_code=args.use_claude_code)
+            return i, work_dir, result
 
-        result = process_video(work_dir, args.model)
+        with ThreadPoolExecutor(max_workers=args.parallel) as executor:
+            futures = {executor.submit(process_one, item): item for item in to_process}
 
-        if result["success"]:
-            print(f"  Done in {result['processing_time']}s: {result['scenes']} scenes, {result['ocr_items']} OCR items")
-            successful += 1
-            total_time += result['processing_time']
-        else:
-            print(f"  Error: {result.get('error')}")
-            failed += 1
+            for future in as_completed(futures):
+                i, work_dir, result = future.result()
+                if result["success"]:
+                    print(f"[{i}/{len(work_dirs)}] {work_dir.name} - Done in {result['processing_time']}s: {result['scenes']} scenes, {result['ocr_items']} OCR items")
+                    successful += 1
+                    total_time += result['processing_time']
+                else:
+                    print(f"[{i}/{len(work_dirs)}] {work_dir.name} - Error: {result.get('error')}")
+                    failed += 1
+    else:
+        # Sequential processing
+        for i, work_dir in to_process:
+            print(f"[{i}/{len(work_dirs)}] {work_dir.name}")
 
-        print()
+            result = process_video(work_dir, args.model, use_batch_api=args.batch_ocr, use_claude_code=args.use_claude_code)
+
+            if result["success"]:
+                print(f"  Done in {result['processing_time']}s: {result['scenes']} scenes, {result['ocr_items']} OCR items")
+                successful += 1
+                total_time += result['processing_time']
+            else:
+                print(f"  Error: {result.get('error')}")
+                failed += 1
+
+            print()
 
     # Summary
     print("=" * 40)
